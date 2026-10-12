@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+
+import 'theme/app_theme.dart';
+import 'widgets/booking_card.dart';
+import 'widgets/booking_dialog.dart';
+import 'widgets/empty_state_widget.dart';
+import 'widgets/photographer_card.dart';
 import 'widgets/portfolio_manager_widget.dart';
-import 'widgets/portfolio_viewer_widget.dart';
 
 // Safe Local Supabase Configuration
 const String supabaseUrl = 'http://127.0.0.1:54321';
@@ -10,10 +15,7 @@ const String supabaseAnonKey = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(
-    url: supabaseUrl,
-    publishableKey: supabaseAnonKey,
-  );
+  await Supabase.initialize(url: supabaseUrl, publishableKey: supabaseAnonKey);
   runApp(const PYPApp());
 }
 
@@ -25,20 +27,15 @@ class PYPApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PYP - Pick Your Photographer',
+      title: 'PYP — Pick Your Photographer',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.deepPurple,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.darkTheme,
       home: const AuthGate(),
     );
   }
 }
 
+/// Authentication state router
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -57,6 +54,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
+/// 1. Authentication Screen: Branded, elegant sign-in / sign-up screen
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -70,6 +68,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _nameController = TextEditingController();
   bool _isSignUp = false;
   bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
 
   Future<void> _submit() async {
     final email = _emailController.text.trim();
@@ -78,14 +85,20 @@ class _AuthScreenState extends State<AuthScreen> {
 
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email and password are required')),
+        const SnackBar(
+          content: Text('Email and password are required.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
       );
       return;
     }
 
     if (_isSignUp && name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Full name is required for sign up')),
+        const SnackBar(
+          content: Text('Full name is required for registration.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
       );
       return;
     }
@@ -101,8 +114,14 @@ class _AuthScreenState extends State<AuthScreen> {
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Sign up successful! Please sign in.')),
+            const SnackBar(
+              content: Text(
+                'Registration successful! Please sign in with your credentials.',
+              ),
+              backgroundColor: AppColors.statusConfirmed,
+            ),
           );
+          setState(() => _isSignUp = false);
         }
       } else {
         await supabase.auth.signInWithPassword(
@@ -113,13 +132,19 @@ class _AuthScreenState extends State<AuthScreen> {
     } on AuthException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message)),
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
+          SnackBar(
+            content: Text('Authentication error: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     } finally {
@@ -130,73 +155,174 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_isSignUp ? 'PYP - Create Account' : 'PYP - Sign In'),
-        centerTitle: true,
-      ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Card(
-            elevation: 2,
-            child: Padding(
-              padding: const EdgeInsets.all(20.0),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 32.0,
+            ),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 440),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.camera_alt, size: 48, color: Colors.deepPurple),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Pick Your Photographer',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
-                  const SizedBox(height: 20),
-                  if (_isSignUp) ...[
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                        prefixIcon: Icon(Icons.person),
-                        border: OutlineInputBorder(),
+                  // Brand Logo Header
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(20),
+                    child: Image.asset(
+                      'assets/images/pyp_logo.jpeg',
+                      width: 90,
+                      height: 90,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          color: AppColors.darkSurfaceVariant,
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: AppColors.borderDark),
+                        ),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          size: 44,
+                          color: AppColors.champagneGold,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                  ],
-                  TextField(
-                    controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: 'Email Address',
-                      prefixIcon: Icon(Icons.email),
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.emailAddress,
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _passwordController,
-                    decoration: const InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock),
-                      border: OutlineInputBorder(),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'PYP',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 3.0,
+                      color: AppColors.champagneGold,
                     ),
-                    obscureText: true,
                   ),
-                  const SizedBox(height: 20),
-                  _isLoading
-                      ? const CircularProgressIndicator()
-                      : SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: _submit,
-                            child: Text(_isSignUp ? 'Create Account' : 'Sign In'),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'PICK YOUR PHOTOGRAPHER',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 2.0,
+                      color: AppColors.mutedSilver,
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Auth Card
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _isSignUp ? 'Create Account' : 'Welcome Back',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.warmIvory,
+                            ),
                           ),
-                        ),
-                  const SizedBox(height: 8),
+                          const SizedBox(height: 6),
+                          Text(
+                            _isSignUp
+                                ? 'Sign up to discover and book elite photographers.'
+                                : 'Sign in to manage your bookings and portfolio.',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.mutedSilver,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+
+                          if (_isSignUp) ...[
+                            TextField(
+                              controller: _nameController,
+                              decoration: const InputDecoration(
+                                labelText: 'Full Name',
+                                prefixIcon: Icon(
+                                  Icons.person_outline,
+                                  color: AppColors.mutedSilver,
+                                ),
+                              ),
+                              textInputAction: TextInputAction.next,
+                            ),
+                            const SizedBox(height: 16),
+                          ],
+
+                          TextField(
+                            controller: _emailController,
+                            decoration: const InputDecoration(
+                              labelText: 'Email Address',
+                              prefixIcon: Icon(
+                                Icons.email_outlined,
+                                color: AppColors.mutedSilver,
+                              ),
+                            ),
+                            keyboardType: TextInputType.emailAddress,
+                            textInputAction: TextInputAction.next,
+                          ),
+                          const SizedBox(height: 16),
+
+                          TextField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon: const Icon(
+                                Icons.lock_outline,
+                                color: AppColors.mutedSilver,
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscurePassword
+                                      ? Icons.visibility_outlined
+                                      : Icons.visibility_off_outlined,
+                                  color: AppColors.mutedSilver,
+                                ),
+                                onPressed: () => setState(
+                                  () => _obscurePassword = !_obscurePassword,
+                                ),
+                              ),
+                            ),
+                            obscureText: _obscurePassword,
+                            onSubmitted: (_) => _submit(),
+                          ),
+                          const SizedBox(height: 24),
+
+                          _isLoading
+                              ? const EditorialLoadingWidget(
+                                  label: 'Authenticating...',
+                                )
+                              : SizedBox(
+                                  width: double.infinity,
+                                  child: ElevatedButton(
+                                    onPressed: _submit,
+                                    child: Text(
+                                      _isSignUp ? 'Create Account' : 'Sign In',
+                                    ),
+                                  ),
+                                ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
                   TextButton(
-                    onPressed: () => setState(() => _isSignUp = !_isSignUp),
-                    child: Text(_isSignUp
-                        ? 'Already have an account? Sign In'
-                        : 'New to PYP? Create Account'),
+                    onPressed: () => setState(() {
+                      _isSignUp = !_isSignUp;
+                    }),
+                    child: Text(
+                      _isSignUp
+                          ? 'Already have an account? Sign In'
+                          : "Don't have an account? Create Account",
+                      style: const TextStyle(color: AppColors.champagneGold),
+                    ),
                   ),
                 ],
               ),
@@ -208,6 +334,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
+/// 7. Navigation & Responsive Layout Shell
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -248,14 +375,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final userEmail = supabase.auth.currentUser?.email ?? 'User';
-
-    final navItems = <BottomNavigationBarItem>[
-      const BottomNavigationBarItem(icon: Icon(Icons.camera_alt), label: 'Browse'),
-      const BottomNavigationBarItem(icon: Icon(Icons.book_online), label: 'My Bookings'),
-      const BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Photographer Profile'),
-      if (isAdmin)
-        const BottomNavigationBarItem(icon: Icon(Icons.admin_panel_settings), label: 'Admin Moderation'),
-    ];
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isWideScreen = screenWidth >= 720;
 
     final screens = <Widget>[
       const PhotographerListScreen(),
@@ -264,66 +385,192 @@ class _HomeScreenState extends State<HomeScreen> {
       if (isAdmin) const AdminModerationScreen(),
     ];
 
+    // Ensure selected index is within range
+    final activeIndex = _currentIndex < screens.length ? _currentIndex : 0;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pick Your Photographer'),
+        title: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'assets/images/pyp_logo.jpeg',
+                width: 28,
+                height: 28,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) => const Icon(
+                  Icons.camera_alt,
+                  color: AppColors.champagneGold,
+                  size: 24,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'PYP',
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1.5,
+                color: AppColors.champagneGold,
+              ),
+            ),
+          ],
+        ),
         actions: [
+          // User Badge Dropdown / Summary
+          Padding(
+            padding: const EdgeInsets.only(right: 8.0),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.account_circle,
+                  size: 20,
+                  color: AppColors.mutedSilver,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  userEmail.split('@').first,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: AppColors.warmIvory,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (!_isLoadingRoles)
+                  Wrap(
+                    spacing: 4,
+                    children: _userRoles.map((role) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.darkSurfaceVariant,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: AppColors.borderDark),
+                        ),
+                        child: Text(
+                          role.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 9,
+                            color: AppColors.champagneGold,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout, color: AppColors.mutedSilver),
             tooltip: 'Sign Out',
             onPressed: () => supabase.auth.signOut(),
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Container(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
+      body: isWideScreen
+          ? Row(
               children: [
-                const Icon(Icons.account_circle, size: 28),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(userEmail, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      if (!_isLoadingRoles)
-                        Wrap(
-                          spacing: 4,
-                          children: _userRoles.map((role) {
-                            return Chip(
-                              label: Text(role.toUpperCase(), style: const TextStyle(fontSize: 10)),
-                              visualDensity: VisualDensity.compact,
-                              padding: EdgeInsets.zero,
-                            );
-                          }).toList(),
+                NavigationRail(
+                  selectedIndex: activeIndex,
+                  onDestinationSelected: (index) =>
+                      setState(() => _currentIndex = index),
+                  labelType: NavigationRailLabelType.all,
+                  destinations: [
+                    const NavigationRailDestination(
+                      icon: Icon(Icons.search),
+                      selectedIcon: Icon(
+                        Icons.search,
+                        color: AppColors.champagneGold,
+                      ),
+                      label: Text('Discover'),
+                    ),
+                    const NavigationRailDestination(
+                      icon: Icon(Icons.calendar_month_outlined),
+                      selectedIcon: Icon(
+                        Icons.calendar_month,
+                        color: AppColors.champagneGold,
+                      ),
+                      label: Text('Bookings'),
+                    ),
+                    const NavigationRailDestination(
+                      icon: Icon(Icons.person_outline),
+                      selectedIcon: Icon(
+                        Icons.person,
+                        color: AppColors.champagneGold,
+                      ),
+                      label: Text('Profile'),
+                    ),
+                    if (isAdmin)
+                      const NavigationRailDestination(
+                        icon: Icon(Icons.admin_panel_settings_outlined),
+                        selectedIcon: Icon(
+                          Icons.admin_panel_settings,
+                          color: AppColors.champagneGold,
                         ),
-                    ],
-                  ),
+                        label: Text('Moderation'),
+                      ),
+                  ],
                 ),
+                const VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: AppColors.borderDark,
+                ),
+                Expanded(child: screens[activeIndex]),
+              ],
+            )
+          : IndexedStack(index: activeIndex, children: screens),
+      bottomNavigationBar: isWideScreen
+          ? null
+          : BottomNavigationBar(
+              currentIndex: activeIndex,
+              onTap: (index) => setState(() => _currentIndex = index),
+              items: [
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.search),
+                  activeIcon: Icon(
+                    Icons.search,
+                    color: AppColors.champagneGold,
+                  ),
+                  label: 'Discover',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.calendar_month_outlined),
+                  activeIcon: Icon(
+                    Icons.calendar_month,
+                    color: AppColors.champagneGold,
+                  ),
+                  label: 'Bookings',
+                ),
+                const BottomNavigationBarItem(
+                  icon: Icon(Icons.person_outline),
+                  activeIcon: Icon(
+                    Icons.person,
+                    color: AppColors.champagneGold,
+                  ),
+                  label: 'Profile',
+                ),
+                if (isAdmin)
+                  const BottomNavigationBarItem(
+                    icon: Icon(Icons.admin_panel_settings_outlined),
+                    activeIcon: Icon(
+                      Icons.admin_panel_settings,
+                      color: AppColors.champagneGold,
+                    ),
+                    label: 'Moderation',
+                  ),
               ],
             ),
-          ),
-          Expanded(
-            child: IndexedStack(
-              index: _currentIndex < screens.length ? _currentIndex : 0,
-              children: screens,
-            ),
-          ),
-        ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex < navItems.length ? _currentIndex : 0,
-        type: BottomNavigationBarType.fixed,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: navItems,
-      ),
     );
   }
 }
 
+/// 2. Discover Screen: Editorial hero, search, category filters, photographer grid
 class PhotographerListScreen extends StatefulWidget {
   const PhotographerListScreen({super.key});
 
@@ -333,12 +580,31 @@ class PhotographerListScreen extends StatefulWidget {
 
 class _PhotographerListScreenState extends State<PhotographerListScreen> {
   late Future<List<Map<String, dynamic>>> _photographersFuture;
+  final _searchController = TextEditingController();
   String _searchQuery = '';
+  String _selectedCategoryFilter = 'All';
+
+  static const List<String> categoryFilters = [
+    'All',
+    'Wedding',
+    'Portrait',
+    'Fashion',
+    'Event',
+    'Pre-wedding',
+    'Commercial',
+    'Travel',
+  ];
 
   @override
   void initState() {
     super.initState();
     _fetchPhotographers();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   void _fetchPhotographers() {
@@ -355,77 +621,173 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: RefreshIndicator(
+        color: AppColors.champagneGold,
+        backgroundColor: AppColors.darkSurface,
         onRefresh: () async => _fetchPhotographers(),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: TextField(
-                decoration: const InputDecoration(
-                  labelText: 'Search by city or category',
-                  prefixIcon: Icon(Icons.search),
-                  border: OutlineInputBorder(),
+        child: CustomScrollView(
+          slivers: [
+            // Editorial Hero Section
+            SliverToBoxAdapter(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                decoration: const BoxDecoration(color: AppColors.obsidian),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'EDITORIAL MARKETPLACE',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.champagneGold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Find Extraordinary Photographers',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.warmIvory,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Search Bar
+                    TextField(
+                      controller: _searchController,
+                      decoration: InputDecoration(
+                        hintText:
+                            'Search by city, category, or photographer name...',
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          color: AppColors.mutedSilver,
+                        ),
+                        suffixIcon: _searchQuery.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(
+                                  Icons.clear,
+                                  color: AppColors.mutedSilver,
+                                ),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  setState(() => _searchQuery = '');
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (val) => setState(
+                        () => _searchQuery = val.trim().toLowerCase(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Event-Category Filters
+                    SizedBox(
+                      height: 38,
+                      child: ListView.builder(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: categoryFilters.length,
+                        itemBuilder: (context, index) {
+                          final cat = categoryFilters[index];
+                          final isSelected = _selectedCategoryFilter == cat;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8.0),
+                            child: FilterChip(
+                              label: Text(cat),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setState(() {
+                                  _selectedCategoryFilter = cat;
+                                });
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                onChanged: (val) => setState(() => _searchQuery = val.trim().toLowerCase()),
               ),
             ),
-            Expanded(
+
+            // Photographers List
+            SliverFillRemaining(
+              hasScrollBody: true,
               child: FutureBuilder<List<Map<String, dynamic>>>(
                 future: _photographersFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
+                    return const EditorialLoadingWidget(
+                      label: 'Curating portfolio marketplace...',
+                    );
                   }
                   if (snapshot.hasError) {
-                    return Center(child: Text('Error loading photographers: ${snapshot.error}'));
+                    return EditorialErrorWidget(
+                      errorMessage:
+                          'Failed to load photographers: ${snapshot.error}',
+                      onRetry: _fetchPhotographers,
+                    );
                   }
                   final allPhotographers = snapshot.data ?? [];
-                  final photographers = allPhotographers.where((p) {
-                    if (_searchQuery.isEmpty) return true;
+
+                  final filteredList = allPhotographers.where((p) {
                     final city = (p['city'] ?? '').toString().toLowerCase();
                     final cat = (p['category'] ?? '').toString().toLowerCase();
-                    final name = (p['display_name'] ?? '').toString().toLowerCase();
-                    return city.contains(_searchQuery) || cat.contains(_searchQuery) || name.contains(_searchQuery);
+                    final name = (p['display_name'] ?? '')
+                        .toString()
+                        .toLowerCase();
+
+                    // Search query filter
+                    final matchesSearch =
+                        _searchQuery.isEmpty ||
+                        city.contains(_searchQuery) ||
+                        cat.contains(_searchQuery) ||
+                        name.contains(_searchQuery);
+
+                    // Category chip filter
+                    final matchesCategory =
+                        _selectedCategoryFilter == 'All' ||
+                        cat.contains(_selectedCategoryFilter.toLowerCase());
+
+                    return matchesSearch && matchesCategory;
                   }).toList();
 
-                  if (photographers.isEmpty) {
-                    return const Center(child: Text('No published photographers found.'));
+                  if (filteredList.isEmpty) {
+                    return EmptyStateWidget(
+                      icon: Icons.camera_alt_outlined,
+                      title: 'No Photographers Found',
+                      message:
+                          _searchQuery.isNotEmpty ||
+                              _selectedCategoryFilter != 'All'
+                          ? 'No published photographers match your search query or category filter.'
+                          : 'There are currently no published photographers available.',
+                      actionLabel:
+                          _searchQuery.isNotEmpty ||
+                              _selectedCategoryFilter != 'All'
+                          ? 'Reset Filters'
+                          : null,
+                      onAction: () {
+                        _searchController.clear();
+                        setState(() {
+                          _searchQuery = '';
+                          _selectedCategoryFilter = 'All';
+                        });
+                      },
+                    );
                   }
+
                   return ListView.builder(
-                    itemCount: photographers.length,
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: filteredList.length,
                     itemBuilder: (context, index) {
-                      final photo = photographers[index];
-                      final startingPriceINR = (photo['starting_price_paise'] as int) / 100.0;
-                      return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Column(
-                          children: [
-                            ListTile(
-                              leading: const CircleAvatar(child: Icon(Icons.camera_alt)),
-                              title: Text(photo['display_name'] ?? 'Unnamed Photographer'),
-                              subtitle: Text('${photo['category']} • ${photo['city']}\n${photo['bio'] ?? ''}'),
-                              isThreeLine: photo['bio'] != null && photo['bio'].toString().isNotEmpty,
-                              trailing: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    '₹${startingPriceINR.toStringAsFixed(0)}',
-                                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                  ),
-                                  const Text('Starting', style: TextStyle(fontSize: 10)),
-                                ],
-                              ),
-                              onTap: () => _showBookingDialog(context, photo),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16.0, 0.0, 16.0, 12.0),
-                              child: PortfolioViewerWidget(
-                                portfolioUrls: List<String>.from(photo['portfolio_urls'] ?? []),
-                                photographerName: photo['display_name'] ?? 'Photographer',
-                              ),
-                            ),
-                          ],
-                        ),
+                      final photo = filteredList[index];
+                      return PhotographerCard(
+                        photographer: photo,
+                        onBookPressed: () =>
+                            BookingDialog.show(context, photographer: photo),
                       );
                     },
                   );
@@ -437,96 +799,9 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
       ),
     );
   }
-
-  void _showBookingDialog(BuildContext context, Map<String, dynamic> photo) {
-    final cityController = TextEditingController(text: photo['city']);
-    final typeController = TextEditingController(text: photo['category']);
-    final noteController = TextEditingController();
-    DateTime selectedDate = DateTime.now().add(const Duration(days: 7));
-
-    showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('Book ${photo['display_name']}'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: cityController,
-                  decoration: const InputDecoration(labelText: 'Event City'),
-                ),
-                TextField(
-                  controller: typeController,
-                  decoration: const InputDecoration(labelText: 'Event Type'),
-                ),
-                TextField(
-                  controller: noteController,
-                  decoration: const InputDecoration(labelText: 'Customer Note'),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Text('Date: ${selectedDate.toIso8601String().split('T')[0]}'),
-                    const Spacer(),
-                    TextButton(
-                      onPressed: () async {
-                        final picked = await showDatePicker(
-                          context: context,
-                          initialDate: selectedDate,
-                          firstDate: DateTime.now(),
-                          lastDate: DateTime.now().add(const Duration(days: 365)),
-                        );
-                        if (picked != null) {
-                          setDialogState(() => selectedDate = picked);
-                        }
-                      },
-                      child: const Text('Change Date'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                try {
-                  await supabase.rpc('create_booking_request', params: {
-                    'p_photographer_id': photo['id'],
-                    'p_event_date': selectedDate.toIso8601String().split('T')[0],
-                    'p_event_city': cityController.text.trim(),
-                    'p_event_type': typeController.text.trim(),
-                    'p_customer_note': noteController.text.trim(),
-                  });
-                  if (ctx.mounted) {
-                    Navigator.pop(ctx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Booking request submitted!')),
-                    );
-                  }
-                } catch (e) {
-                  if (ctx.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Booking failed: $e')),
-                    );
-                  }
-                }
-              },
-              child: const Text('Submit Request'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
+/// 4. My Bookings Screen: Booking list, readable status badges, customer/photographer actions
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
 
@@ -563,193 +838,111 @@ class _BookingsScreenState extends State<BookingsScreen> {
 
   Future<void> _respondToBooking(String bookingId, bool accept) async {
     try {
-      await supabase.rpc('photographer_respond_booking', params: {
-        'p_booking_id': bookingId,
-        'p_accept': accept,
-      });
+      await supabase.rpc(
+        'photographer_respond_booking',
+        params: {'p_booking_id': bookingId, 'p_accept': accept},
+      );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(accept ? 'Booking Accepted!' : 'Booking Rejected.')),
+          SnackBar(
+            content: Text(
+              accept
+                  ? 'Booking Request Accepted!'
+                  : 'Booking Request Rejected.',
+            ),
+            backgroundColor: accept
+                ? AppColors.statusConfirmed
+                : AppColors.statusCancelled,
+          ),
         );
       }
       _fetchBookings();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Action failed: $e')),
+          SnackBar(
+            content: Text('Action failed: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _cancelBooking(String bookingId) async {
+    try {
+      await supabase.rpc(
+        'customer_cancel_booking',
+        params: {'p_booking_id': bookingId},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Booking request cancelled.'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+      _fetchBookings();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Cancellation failed: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     }
   }
 
   void _showRazorpayNotice(Map<String, dynamic> booking) {
+    final totalPaise = (booking['total_amount_paise'] as int?) ?? 100000;
+    final totalINR = totalPaise / 100.0;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Razorpay Payment Mode'),
-        content: Text(
-          'Booking deposit amount: ₹${((booking['total_amount_paise'] as int) / 100.0).toStringAsFixed(0)}\n\n'
-          'Razorpay integration is configured and ready in Edge Functions. To proceed with test/live payment, connect to your environment Razorpay API keys.',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Deposit Amount: ₹${totalINR.toStringAsFixed(0)}',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: AppColors.champagneGold,
+                fontSize: 16,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Razorpay integration is configured and ready in Edge Functions. To proceed with test/live payment, connect to your environment Razorpay API keys.',
+              style: TextStyle(
+                color: AppColors.mutedSilver,
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ],
         ),
         actions: [
-          TextButton(
+          ElevatedButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK'),
+            child: const Text('Acknowledge'),
           ),
         ],
       ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final currentUserId = supabase.auth.currentUser?.id;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Bookings'),
-        actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _fetchBookings),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: () async => _fetchBookings(),
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _bookingsFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (snapshot.hasError) {
-              return Center(child: Text('Error loading bookings: ${snapshot.error}'));
-            }
-            final bookings = snapshot.data ?? [];
-            if (bookings.isEmpty) {
-              return const Center(child: Text('No bookings yet.'));
-            }
-            return ListView.builder(
-              itemCount: bookings.length,
-              itemBuilder: (context, index) {
-                final b = bookings[index];
-                final totalINR = (b['total_amount_paise'] as int) / 100.0;
-                final status = b['status'].toString();
-                final isCustomer = b['customer_id'] == currentUserId;
-                final photographerInfo = b['photographer_profiles'] as Map<String, dynamic>?;
-                final photoName = photographerInfo?['display_name'] ?? 'Photographer';
-
-                return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Event: ${b['event_type']}',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            Chip(
-                              label: Text(status.toUpperCase(), style: const TextStyle(fontSize: 11)),
-                              backgroundColor: _getStatusColor(status).withAlpha(38),
-                            ),
-                          ],
-                        ),
-                        Text('Photographer: $photoName'),
-                        Text('City: ${b['event_city']} • Date: ${b['event_date']}'),
-                        Text('Total Fee: ₹${totalINR.toStringAsFixed(0)}'),
-                        if (b['customer_note'] != null && b['customer_note'].toString().isNotEmpty)
-                          Text('Note: ${b['customer_note']}'),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          children: [
-                            // Customer Actions
-                            if (isCustomer && (status == 'accepted' || status == 'awaiting_payment'))
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.payment),
-                                label: const Text('Pay Deposit'),
-                                onPressed: () => _showRazorpayNotice(b),
-                              ),
-                            if (isCustomer && (status == 'requested' || status == 'accepted' || status == 'awaiting_payment'))
-                              OutlinedButton(
-                                onPressed: () async {
-                                  try {
-                                    await supabase.rpc('customer_cancel_booking', params: {
-                                      'p_booking_id': b['id'],
-                                    });
-                                    _fetchBookings();
-                                  } catch (e) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Cancellation failed: $e')),
-                                      );
-                                    }
-                                  }
-                                },
-                                child: const Text('Cancel Request'),
-                              ),
-                            if (status == 'confirmed' || status == 'completed')
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.contact_phone),
-                                label: const Text('View Contact Info'),
-                                onPressed: () => _showContactInfo(b['id']),
-                              ),
-
-                            // Photographer Actions
-                            if (!isCustomer && status == 'requested') ...[
-                              ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
-                                icon: const Icon(Icons.check),
-                                label: const Text('Accept Booking'),
-                                onPressed: () => _respondToBooking(b['id'], true),
-                              ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                icon: const Icon(Icons.close),
-                                label: const Text('Reject Booking'),
-                                onPressed: () => _respondToBooking(b['id'], false),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            );
-          },
-        ),
-      ),
-    );
-  }
-
-  Color _getStatusColor(String status) {
-    switch (status) {
-      case 'requested':
-        return Colors.orange;
-      case 'accepted':
-      case 'awaiting_payment':
-        return Colors.blue;
-      case 'confirmed':
-      case 'completed':
-        return Colors.green;
-      case 'cancelled':
-      case 'rejected':
-        return Colors.red;
-      default:
-        return Colors.grey;
-    }
-  }
-
   Future<void> _showContactInfo(String bookingId) async {
     try {
-      final res = await supabase.rpc('get_booking_photographer_contact', params: {
-        'p_booking_id': bookingId,
-      });
+      final res = await supabase.rpc(
+        'get_booking_photographer_contact',
+        params: {'p_booking_id': bookingId},
+      );
 
       if (res != null && res is List && res.isNotEmpty) {
         final contact = res[0];
@@ -757,23 +950,56 @@ class _BookingsScreenState extends State<BookingsScreen> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: const Text('Photographer Contact Info'),
+              title: const Text('Photographer Contact Information'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.phone),
-                    title: Text(contact['phone'] ?? 'N/A'),
+                    leading: const Icon(
+                      Icons.phone,
+                      color: AppColors.champagneGold,
+                    ),
+                    title: const Text(
+                      'Phone Number',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.mutedSilver,
+                      ),
+                    ),
+                    subtitle: Text(
+                      contact['phone'] ?? 'N/A',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: AppColors.warmIvory,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                   ListTile(
-                    leading: const Icon(Icons.email),
-                    title: Text(contact['email'] ?? 'N/A'),
+                    leading: const Icon(
+                      Icons.email,
+                      color: AppColors.champagneGold,
+                    ),
+                    title: const Text(
+                      'Email Address',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppColors.mutedSilver,
+                      ),
+                    ),
+                    subtitle: Text(
+                      contact['email'] ?? 'N/A',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        color: AppColors.warmIvory,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ],
               ),
               actions: [
-                TextButton(
+                OutlinedButton(
                   onPressed: () => Navigator.pop(ctx),
                   child: const Text('Close'),
                 ),
@@ -785,20 +1011,90 @@ class _BookingsScreenState extends State<BookingsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load contact info: $e')),
+          SnackBar(
+            content: Text('Failed to load contact info: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     }
   }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = supabase.auth.currentUser?.id ?? '';
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Bookings'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
+            onPressed: _fetchBookings,
+            tooltip: 'Refresh Bookings',
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        color: AppColors.champagneGold,
+        backgroundColor: AppColors.darkSurface,
+        onRefresh: () async => _fetchBookings(),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _bookingsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const EditorialLoadingWidget(
+                label: 'Retrieving your bookings...',
+              );
+            }
+            if (snapshot.hasError) {
+              return EditorialErrorWidget(
+                errorMessage: 'Error loading bookings: ${snapshot.error}',
+                onRetry: _fetchBookings,
+              );
+            }
+            final bookings = snapshot.data ?? [];
+            if (bookings.isEmpty) {
+              return const EmptyStateWidget(
+                icon: Icons.calendar_today_outlined,
+                title: 'No Bookings Yet',
+                message:
+                    'Explore our curated marketplace to reserve your first photo session.',
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              itemCount: bookings.length,
+              itemBuilder: (context, index) {
+                final b = bookings[index];
+                return BookingCard(
+                  booking: b,
+                  currentUserId: currentUserId,
+                  onRefreshNeeded: _fetchBookings,
+                  onPayDeposit: _showRazorpayNotice,
+                  onViewContactInfo: _showContactInfo,
+                  onPhotographerRespond: _respondToBooking,
+                  onCustomerCancel: _cancelBooking,
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
 }
 
+/// 5. Photographer Profile Screen: Structured onboarding, portfolio management, publication status
 class PhotographerProfileScreen extends StatefulWidget {
   final VoidCallback? onProfileUpdated;
 
   const PhotographerProfileScreen({super.key, this.onProfileUpdated});
 
   @override
-  State<PhotographerProfileScreen> createState() => _PhotographerProfileScreenState();
+  State<PhotographerProfileScreen> createState() =>
+      _PhotographerProfileScreenState();
 }
 
 class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
@@ -822,6 +1118,18 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     _loadProfileData();
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _bioController.dispose();
+    _cityController.dispose();
+    _categoryController.dispose();
+    _priceController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadProfileData() async {
     final userId = supabase.auth.currentUser?.id;
     if (userId == null) return;
@@ -839,7 +1147,8 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
         _bioController.text = profileRes['bio'] ?? '';
         _cityController.text = profileRes['city'] ?? '';
         _categoryController.text = profileRes['category'] ?? '';
-        final priceINR = (profileRes['starting_price_paise'] as int) / 100.0;
+        final priceINR =
+            ((profileRes['starting_price_paise'] as int?) ?? 100000) / 100.0;
         _priceController.text = priceINR.toStringAsFixed(0);
         _isPublished = profileRes['is_published'] == true;
         _portfolioUrls = List<String>.from(profileRes['portfolio_urls'] ?? []);
@@ -874,7 +1183,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
 
     if (name.isEmpty || city.isEmpty || category.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Display Name, City, and Category are required')),
+        const SnackBar(
+          content: Text('Display Name, City, and Category are required.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
       );
       return;
     }
@@ -882,20 +1194,28 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     setState(() => _isLoading = true);
 
     try {
-      await supabase.rpc('register_as_photographer', params: {
-        'p_display_name': name,
-        'p_bio': _bioController.text.trim(),
-        'p_city': city,
-        'p_category': category,
-        'p_starting_price_paise': pricePaise,
-        'p_phone': _phoneController.text.trim(),
-        'p_email': _emailController.text.trim(),
-        'p_portfolio_urls': _portfolioUrls,
-      });
+      await supabase.rpc(
+        'register_as_photographer',
+        params: {
+          'p_display_name': name,
+          'p_bio': _bioController.text.trim(),
+          'p_city': city,
+          'p_category': category,
+          'p_starting_price_paise': pricePaise,
+          'p_phone': _phoneController.text.trim(),
+          'p_email': _emailController.text.trim(),
+          'p_portfolio_urls': _portfolioUrls,
+        },
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profile submitted! Awaiting admin moderation.')),
+          const SnackBar(
+            content: Text(
+              'Profile saved successfully! Pending admin moderation/publishing.',
+            ),
+            backgroundColor: AppColors.statusConfirmed,
+          ),
         );
       }
       widget.onProfileUpdated?.call();
@@ -903,7 +1223,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Registration failed: $e')),
+          SnackBar(
+            content: Text('Registration failed: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     } finally {
@@ -914,73 +1237,186 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isFetching) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const EditorialLoadingWidget(label: 'Loading profile details...');
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Photographer Profile Onboarding')),
+      appBar: AppBar(title: const Text('Photographer Profile & Portfolio')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Card(
-              color: _isPublished ? Colors.green.shade50 : Colors.amber.shade50,
-              child: Padding(
-                padding: const EdgeInsets.all(12.0),
-                child: Row(
-                  children: [
-                    Icon(
-                      _isPublished ? Icons.verified : Icons.pending_actions,
-                      color: _isPublished ? Colors.green : Colors.amber.shade800,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _isPublished
-                            ? 'Status: Published & Active on Browse List'
-                            : _hasExistingProfile
-                                ? 'Status: Pending Admin Moderation / Publishing'
-                                : 'Status: Not Registered as Photographer',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: _isPublished ? Colors.green.shade900 : Colors.amber.shade900,
-                        ),
-                      ),
-                    ),
-                  ],
+            // Status Card
+            Container(
+              padding: const EdgeInsets.all(16.0),
+              decoration: BoxDecoration(
+                color: _isPublished
+                    ? AppColors.statusConfirmed.withValues(alpha: 0.12)
+                    : AppColors.statusRequested.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _isPublished
+                      ? AppColors.statusConfirmed.withValues(alpha: 0.4)
+                      : AppColors.statusRequested.withValues(alpha: 0.4),
                 ),
               ),
+              child: Row(
+                children: [
+                  Icon(
+                    _isPublished ? Icons.verified : Icons.pending_actions,
+                    color: _isPublished
+                        ? AppColors.statusConfirmed
+                        : AppColors.statusRequested,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _isPublished
+                              ? 'PUBLISHED & ACTIVE'
+                              : 'PENDING MODERATION',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 1.0,
+                            color: _isPublished
+                                ? AppColors.statusConfirmed
+                                : AppColors.statusRequested,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _isPublished
+                              ? 'Your listing is published and visible on the Discover marketplace.'
+                              : _hasExistingProfile
+                              ? 'Your profile is submitted and awaiting admin moderation.'
+                              : 'Complete and submit your profile details below to apply as a photographer.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppColors.warmIvory,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            TextField(controller: _nameController, decoration: const InputDecoration(labelText: 'Display Name', border: OutlineInputBorder())),
+            const SizedBox(height: 24),
+
+            // Form Title
+            const Text(
+              'PUBLIC PROFILE DETAILS',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AppColors.champagneGold,
+                letterSpacing: 1.2,
+              ),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _bioController, decoration: const InputDecoration(labelText: 'Bio / Experience', border: OutlineInputBorder()), maxLines: 2),
+
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Display Name / Brand',
+              ),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _cityController, decoration: const InputDecoration(labelText: 'City', border: OutlineInputBorder())),
+            TextField(
+              controller: _bioController,
+              decoration: const InputDecoration(
+                labelText: 'Bio / Experience & Style',
+              ),
+              maxLines: 3,
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _categoryController, decoration: const InputDecoration(labelText: 'Category (e.g. Wedding, Portrait)', border: OutlineInputBorder())),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _cityController,
+                    decoration: const InputDecoration(labelText: 'City'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _categoryController,
+                    decoration: const InputDecoration(
+                      labelText: 'Primary Category',
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _priceController, decoration: const InputDecoration(labelText: 'Starting Price (INR)', border: OutlineInputBorder()), keyboardType: TextInputType.number),
+            TextField(
+              controller: _priceController,
+              decoration: const InputDecoration(
+                labelText: 'Starting Price (INR ₹)',
+                prefixText: '₹ ',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 24),
+
+            // Private Details Title
+            const Text(
+              'PRIVATE CONTACT DETAILS (RESTRICTED)',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: AppColors.champagneGold,
+                letterSpacing: 1.2,
+              ),
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _phoneController, decoration: const InputDecoration(labelText: 'Phone Number (Private)', border: OutlineInputBorder())),
+            TextField(
+              controller: _phoneController,
+              decoration: const InputDecoration(
+                labelText: 'Phone Number (For Confirmed Clients Only)',
+              ),
+              keyboardType: TextInputType.phone,
+            ),
             const SizedBox(height: 12),
-            TextField(controller: _emailController, decoration: const InputDecoration(labelText: 'Contact Email (Private)', border: OutlineInputBorder())),
-            const SizedBox(height: 20),
+            TextField(
+              controller: _emailController,
+              decoration: const InputDecoration(
+                labelText: 'Contact Email (For Confirmed Clients Only)',
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 28),
+
+            // Portfolio Showcase Management Section
             PortfolioManagerWidget(
               initialPortfolioUrls: _portfolioUrls,
               onPortfolioUpdated: (updatedUrls) {
                 setState(() => _portfolioUrls = updatedUrls);
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 28),
+
+            // Submit Button
             _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const EditorialLoadingWidget(
+                    label: 'Saving photographer profile...',
+                  )
                 : SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton(
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.save),
+                      label: Text(
+                        _hasExistingProfile
+                            ? 'Update Photographer Profile'
+                            : 'Register as Photographer',
+                      ),
                       onPressed: _registerPhotographer,
-                      child: Text(_hasExistingProfile ? 'Update Photographer Profile' : 'Register as Photographer'),
                     ),
                   ),
           ],
@@ -990,6 +1426,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
   }
 }
 
+/// 6. Admin Moderation Screen: Clean pending-application cards with approve/reject confirmation
 class AdminModerationScreen extends StatefulWidget {
   const AdminModerationScreen({super.key});
 
@@ -1014,20 +1451,28 @@ class _AdminModerationScreenState extends State<AdminModerationScreen> {
     });
   }
 
-  Future<void> _moderatePhotographer(String photographerId, String name, bool approve) async {
+  Future<void> _moderatePhotographer(
+    String photographerId,
+    String name,
+    bool approve,
+  ) async {
     try {
-      await supabase.rpc('admin_moderate_photographer', params: {
-        'p_photographer_id': photographerId,
-        'p_approve': approve,
-      });
+      await supabase.rpc(
+        'admin_moderate_photographer',
+        params: {'p_photographer_id': photographerId, 'p_approve': approve},
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(approve
-                ? 'Photographer "$name" approved & published!'
-                : 'Photographer "$name" rejected / kept unpublished.'),
-            backgroundColor: approve ? Colors.green : Colors.orange,
+            content: Text(
+              approve
+                  ? 'Photographer "$name" approved & published!'
+                  : 'Photographer "$name" rejected / kept unpublished.',
+            ),
+            backgroundColor: approve
+                ? AppColors.statusConfirmed
+                : AppColors.statusRequested,
           ),
         );
       }
@@ -1035,7 +1480,10 @@ class _AdminModerationScreenState extends State<AdminModerationScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Moderation action failed: $e'), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text('Moderation action failed: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
         );
       }
     }
@@ -1048,103 +1496,75 @@ class _AdminModerationScreenState extends State<AdminModerationScreen> {
         title: const Text('Admin Photographer Moderation'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
             onPressed: _fetchPending,
-            tooltip: 'Refresh Pending List',
+            tooltip: 'Refresh Pending Applications',
           ),
         ],
       ),
       body: RefreshIndicator(
+        color: AppColors.champagneGold,
+        backgroundColor: AppColors.darkSurface,
         onRefresh: () async => _fetchPending(),
         child: FutureBuilder<List<Map<String, dynamic>>>(
           future: _pendingFuture,
           builder: (context, snapshot) {
-            // Loading State
             if (snapshot.connectionState == ConnectionState.waiting) {
-              return const Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text('Loading pending applications...'),
-                  ],
-                ),
+              return const EditorialLoadingWidget(
+                label: 'Fetching pending photographer applications...',
               );
             }
 
-            // Error State
             if (snapshot.hasError) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                      const SizedBox(height: 12),
-                      Text(
-                        'Failed to load pending list: ${snapshot.error}',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton.icon(
-                        icon: const Icon(Icons.refresh),
-                        label: const Text('Retry'),
-                        onPressed: _fetchPending,
-                      ),
-                    ],
-                  ),
-                ),
+              return EditorialErrorWidget(
+                errorMessage:
+                    'Failed to load pending applications: ${snapshot.error}',
+                onRetry: _fetchPending,
               );
             }
 
             final pendingList = snapshot.data ?? [];
 
-            // Empty State
             if (pendingList.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.verified_user_outlined, size: 64, color: Colors.green.shade400),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No Pending Applications',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'All photographer profiles have been moderated.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ],
-                  ),
-                ),
+              return const EmptyStateWidget(
+                icon: Icons.verified_user_outlined,
+                title: 'No Pending Applications',
+                message:
+                    'All photographer profile submissions have been moderated.',
               );
             }
 
-            // Success State with Pending Profiles List
             return ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: const EdgeInsets.symmetric(vertical: 12),
               itemCount: pendingList.length,
               itemBuilder: (context, index) {
                 final photo = pendingList[index];
                 final photoId = (photo['out_id'] ?? photo['id']).toString();
-                final displayName = (photo['out_display_name'] ?? photo['display_name'] ?? 'Unnamed').toString();
-                final city = (photo['out_city'] ?? photo['city'] ?? 'N/A').toString();
-                final category = (photo['out_category'] ?? photo['category'] ?? 'N/A').toString();
+                final displayName =
+                    (photo['out_display_name'] ??
+                            photo['display_name'] ??
+                            'Unnamed')
+                        .toString();
+                final city = (photo['out_city'] ?? photo['city'] ?? 'N/A')
+                    .toString();
+                final category =
+                    (photo['out_category'] ?? photo['category'] ?? 'N/A')
+                        .toString();
                 final bio = (photo['out_bio'] ?? photo['bio'] ?? '').toString();
-                final pricePaise = (photo['out_starting_price_paise'] ?? photo['starting_price_paise'] ?? 0) as int;
+                final pricePaise =
+                    (photo['out_starting_price_paise'] ??
+                            photo['starting_price_paise'] ??
+                            0)
+                        as int;
                 final priceINR = pricePaise / 100.0;
 
                 return Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                    padding: const EdgeInsets.all(18.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1154,45 +1574,103 @@ class _AdminModerationScreenState extends State<AdminModerationScreen> {
                             Expanded(
                               child: Text(
                                 displayName,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: AppColors.warmIvory,
+                                ),
                               ),
                             ),
-                            const Chip(
-                              label: Text('PENDING', style: TextStyle(fontSize: 10, color: Colors.amber)),
-                              backgroundColor: Colors.amber,
-                              visualDensity: VisualDensity.compact,
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.statusRequested.withValues(
+                                  alpha: 0.15,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: AppColors.statusRequested.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                              ),
+                              child: const Text(
+                                'PENDING',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.statusRequested,
+                                ),
+                              ),
                             ),
                           ],
                         ),
+                        const SizedBox(height: 6),
+                        Text(
+                          '$category • $city',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.champagneGold,
+                            fontSize: 13,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text('$category • $city', style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.deepPurple)),
-                        const SizedBox(height: 4),
-                        Text('Starting Price: ₹${priceINR.toStringAsFixed(0)}'),
+                        Text(
+                          'Starting Price: ₹${priceINR.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: AppColors.mutedSilver,
+                            fontSize: 13,
+                          ),
+                        ),
                         if (bio.isNotEmpty) ...[
-                          const SizedBox(height: 6),
-                          Text('Bio: $bio', style: const TextStyle(fontStyle: FontStyle.italic)),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Bio: $bio',
+                            style: const TextStyle(
+                              color: AppColors.warmIvory,
+                              fontSize: 13,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
                         ],
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 18),
+
                         Row(
                           children: [
                             Expanded(
                               child: ElevatedButton.icon(
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: AppColors.statusConfirmed,
+                                  foregroundColor: AppColors.warmIvory,
                                 ),
-                                icon: const Icon(Icons.check_circle),
+                                icon: const Icon(Icons.check_circle, size: 16),
                                 label: const Text('Approve & Publish'),
-                                onPressed: () => _moderatePhotographer(photoId, displayName, true),
+                                onPressed: () => _moderatePhotographer(
+                                  photoId,
+                                  displayName,
+                                  true,
+                                ),
                               ),
                             ),
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 10),
                             Expanded(
                               child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(foregroundColor: Colors.red),
-                                icon: const Icon(Icons.cancel),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: AppColors.statusCancelled,
+                                  side: const BorderSide(
+                                    color: AppColors.statusCancelled,
+                                  ),
+                                ),
+                                icon: const Icon(Icons.cancel, size: 16),
                                 label: const Text('Reject'),
-                                onPressed: () => _moderatePhotographer(photoId, displayName, false),
+                                onPressed: () => _moderatePhotographer(
+                                  photoId,
+                                  displayName,
+                                  false,
+                                ),
                               ),
                             ),
                           ],

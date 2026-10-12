@@ -11,14 +11,14 @@ void main() {
   setUpAll(() async {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('plugins.flutter.io/shared_preferences'),
-      (MethodCall methodCall) async {
-        if (methodCall.method == 'getAll') {
-          return <String, dynamic>{};
-        }
-        return null;
-      },
-    );
+          const MethodChannel('plugins.flutter.io/shared_preferences'),
+          (MethodCall methodCall) async {
+            if (methodCall.method == 'getAll') {
+              return <String, dynamic>{};
+            }
+            return null;
+          },
+        );
 
     try {
       await Supabase.initialize(
@@ -33,6 +33,7 @@ void main() {
   testWidgets('PYPApp initializes correctly', (WidgetTester tester) async {
     await tester.pumpWidget(const PYPApp());
     await tester.pumpAndSettle();
-    expect(find.text('PYP - Sign In'), findsOneWidget);
+    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('PICK YOUR PHOTOGRAPHER'), findsOneWidget);
   });
 }

@@ -52,7 +52,7 @@ class ImagePreviewDialog extends StatelessWidget {
                     child: CircularProgressIndicator(
                       value: loadingProgress.expectedTotalBytes != null
                           ? loadingProgress.cumulativeBytesLoaded /
-                              loadingProgress.expectedTotalBytes!
+                                loadingProgress.expectedTotalBytes!
                           : null,
                       color: Colors.white,
                     ),
@@ -102,7 +102,11 @@ class ImagePreviewDialog extends StatelessWidget {
                 const Spacer(),
                 if (onReplace != null)
                   IconButton(
-                    icon: const Icon(Icons.swap_horiz, color: Colors.white, size: 28),
+                    icon: const Icon(
+                      Icons.swap_horiz,
+                      color: Colors.white,
+                      size: 28,
+                    ),
                     tooltip: 'Replace Photo',
                     onPressed: () {
                       Navigator.of(context).pop();
@@ -111,7 +115,11 @@ class ImagePreviewDialog extends StatelessWidget {
                   ),
                 if (onDelete != null)
                   IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.redAccent, size: 28),
+                    icon: const Icon(
+                      Icons.delete,
+                      color: Colors.redAccent,
+                      size: 28,
+                    ),
                     tooltip: 'Delete Photo',
                     onPressed: () {
                       Navigator.of(context).pop();

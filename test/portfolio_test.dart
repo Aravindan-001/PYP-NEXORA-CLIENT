@@ -11,19 +11,31 @@ void main() {
     test('Image validation accepts valid JPEG, PNG, and WebP under 10MB', () {
       final validBytes = Uint8List(1024 * 1024); // 1MB
       expect(
-        () => PortfolioService.validateImage(bytes: validBytes, fileName: 'sample.jpg'),
+        () => PortfolioService.validateImage(
+          bytes: validBytes,
+          fileName: 'sample.jpg',
+        ),
         returnsNormally,
       );
       expect(
-        () => PortfolioService.validateImage(bytes: validBytes, fileName: 'sample.jpeg'),
+        () => PortfolioService.validateImage(
+          bytes: validBytes,
+          fileName: 'sample.jpeg',
+        ),
         returnsNormally,
       );
       expect(
-        () => PortfolioService.validateImage(bytes: validBytes, fileName: 'sample.png'),
+        () => PortfolioService.validateImage(
+          bytes: validBytes,
+          fileName: 'sample.png',
+        ),
         returnsNormally,
       );
       expect(
-        () => PortfolioService.validateImage(bytes: validBytes, fileName: 'sample.webp'),
+        () => PortfolioService.validateImage(
+          bytes: validBytes,
+          fileName: 'sample.webp',
+        ),
         returnsNormally,
       );
     });
@@ -31,15 +43,23 @@ void main() {
     test('Image validation rejects disallowed extensions', () {
       final bytes = Uint8List(512);
       expect(
-        () => PortfolioService.validateImage(bytes: bytes, fileName: 'document.pdf'),
-        throwsA(isA<PortfolioValidationException>().having(
-          (e) => e.message,
-          'message',
-          contains('Invalid file type'),
-        )),
+        () => PortfolioService.validateImage(
+          bytes: bytes,
+          fileName: 'document.pdf',
+        ),
+        throwsA(
+          isA<PortfolioValidationException>().having(
+            (e) => e.message,
+            'message',
+            contains('Invalid file type'),
+          ),
+        ),
       );
       expect(
-        () => PortfolioService.validateImage(bytes: bytes, fileName: 'script.exe'),
+        () => PortfolioService.validateImage(
+          bytes: bytes,
+          fileName: 'script.exe',
+        ),
         throwsA(isA<PortfolioValidationException>()),
       );
     });
@@ -47,31 +67,50 @@ void main() {
     test('Image validation rejects files exceeding 10MB', () {
       final oversizedBytes = Uint8List(11 * 1024 * 1024); // 11MB
       expect(
-        () => PortfolioService.validateImage(bytes: oversizedBytes, fileName: 'large.jpg'),
-        throwsA(isA<PortfolioValidationException>().having(
-          (e) => e.message,
-          'message',
-          contains('exceeds maximum allowed limit of 10MB'),
-        )),
+        () => PortfolioService.validateImage(
+          bytes: oversizedBytes,
+          fileName: 'large.jpg',
+        ),
+        throwsA(
+          isA<PortfolioValidationException>().having(
+            (e) => e.message,
+            'message',
+            contains('exceeds maximum allowed limit of 10MB'),
+          ),
+        ),
       );
     });
 
     test('Image validation rejects empty files', () {
       final emptyBytes = Uint8List(0);
       expect(
-        () => PortfolioService.validateImage(bytes: emptyBytes, fileName: 'empty.jpg'),
-        throwsA(isA<PortfolioValidationException>().having(
-          (e) => e.message,
-          'message',
-          contains('Selected file is empty'),
-        )),
+        () => PortfolioService.validateImage(
+          bytes: emptyBytes,
+          fileName: 'empty.jpg',
+        ),
+        throwsA(
+          isA<PortfolioValidationException>().having(
+            (e) => e.message,
+            'message',
+            contains('Selected file is empty'),
+          ),
+        ),
       );
     });
 
     test('Sanitizes filenames safely', () {
-      expect(PortfolioService.sanitizeFileName('my photo #1.png'), 'my_photo__1.png');
-      expect(PortfolioService.sanitizeFileName('special!@#\$%^&*().jpg'), 'special__________.jpg');
-      expect(PortfolioService.sanitizeFileName('normal_file.webp'), 'normal_file.webp');
+      expect(
+        PortfolioService.sanitizeFileName('my photo #1.png'),
+        'my_photo__1.png',
+      );
+      expect(
+        PortfolioService.sanitizeFileName('special!@#\$%^&*().jpg'),
+        'special__________.jpg',
+      );
+      expect(
+        PortfolioService.sanitizeFileName('normal_file.webp'),
+        'normal_file.webp',
+      );
     });
 
     test('Generates object paths enforcing user_id folder prefix', () {
@@ -103,85 +142,99 @@ void main() {
   });
 
   group('Portfolio Widgets Tests', () {
-    testWidgets('PortfolioViewerWidget renders empty message when URLs list is empty', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: PortfolioViewerWidget(
-              portfolioUrls: [],
-              photographerName: 'John Photographer',
+    testWidgets(
+      'PortfolioViewerWidget renders empty message when URLs list is empty',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: PortfolioViewerWidget(
+                portfolioUrls: [],
+                photographerName: 'John Photographer',
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      expect(find.text('No portfolio images available'), findsOneWidget);
-      expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
-    });
+        expect(find.text('No portfolio work published yet'), findsOneWidget);
+        expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
+      },
+    );
 
-    testWidgets('PortfolioViewerWidget renders thumbnail items when URLs are present', (WidgetTester tester) async {
-      const sampleUrls = [
-        'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/1.jpg',
-        'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/2.jpg',
-      ];
+    testWidgets(
+      'PortfolioViewerWidget renders thumbnail items when URLs are present',
+      (WidgetTester tester) async {
+        const sampleUrls = [
+          'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/1.jpg',
+          'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/2.jpg',
+        ];
 
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: PortfolioViewerWidget(
-              portfolioUrls: sampleUrls,
-              photographerName: 'Jane Studio',
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: PortfolioViewerWidget(
+                portfolioUrls: sampleUrls,
+                photographerName: 'Jane Studio',
+              ),
             ),
           ),
-        ),
-      );
+        );
 
-      expect(find.text('Portfolio (2)'), findsOneWidget);
-      expect(find.byType(ListView), findsOneWidget);
-    });
+        expect(find.text('PORTFOLIO WORK (2)'), findsOneWidget);
+        expect(find.byType(ListView), findsOneWidget);
+      },
+    );
 
-    testWidgets('PortfolioManagerWidget renders empty portfolio placeholder card', (WidgetTester tester) async {
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: PortfolioManagerWidget(
-              initialPortfolioUrls: [],
+    testWidgets(
+      'PortfolioManagerWidget renders empty portfolio placeholder card',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: PortfolioManagerWidget(initialPortfolioUrls: []),
             ),
           ),
-        ),
-      );
+        );
 
-      expect(find.text('Portfolio Showcase (0)'), findsOneWidget);
-      expect(find.text('No Portfolio Photos Uploaded Yet'), findsOneWidget);
-      expect(find.byKey(const Key('empty_portfolio_upload_button')), findsOneWidget);
-    });
+        expect(find.text('Portfolio Showcase (0)'), findsOneWidget);
+        expect(find.text('No Portfolio Photos Uploaded Yet'), findsOneWidget);
+        expect(
+          find.byKey(const Key('empty_portfolio_upload_button')),
+          findsOneWidget,
+        );
+      },
+    );
 
-    testWidgets('PortfolioManagerWidget renders image grid when portfolio items exist', (WidgetTester tester) async {
-      const sampleUrls = [
-        'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/p1.jpg',
-      ];
+    testWidgets(
+      'PortfolioManagerWidget renders image grid when portfolio items exist',
+      (WidgetTester tester) async {
+        const sampleUrls = [
+          'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/p1.jpg',
+        ];
 
-      await tester.pumpWidget(
-        const MaterialApp(
-          home: Scaffold(
-            body: PortfolioManagerWidget(
-              initialPortfolioUrls: sampleUrls,
+        await tester.pumpWidget(
+          const MaterialApp(
+            home: Scaffold(
+              body: PortfolioManagerWidget(initialPortfolioUrls: sampleUrls),
             ),
           ),
-        ),
-      );
+        );
 
-      expect(find.text('Portfolio Showcase (1)'), findsOneWidget);
-      expect(find.byType(GridView), findsOneWidget);
-      expect(find.byKey(const Key('replace_photo_button_0')), findsOneWidget);
-      expect(find.byKey(const Key('delete_photo_button_0')), findsOneWidget);
-    });
+        expect(find.text('Portfolio Showcase (1)'), findsOneWidget);
+        expect(find.byType(GridView), findsOneWidget);
+        expect(find.byKey(const Key('replace_photo_button_0')), findsOneWidget);
+        expect(find.byKey(const Key('delete_photo_button_0')), findsOneWidget);
+      },
+    );
 
-    testWidgets('ImagePreviewDialog renders title and close button', (WidgetTester tester) async {
+    testWidgets('ImagePreviewDialog renders title and close button', (
+      WidgetTester tester,
+    ) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: ImagePreviewDialog(
-            imageUrl: 'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/p1.jpg',
+            imageUrl:
+                'http://127.0.0.1:54321/storage/v1/object/public/portfolio_images/u1/p1.jpg',
             title: 'Sample Preview',
           ),
         ),

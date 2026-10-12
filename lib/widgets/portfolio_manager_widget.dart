@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../services/portfolio_service.dart';
+import '../theme/app_theme.dart';
 import 'image_preview_dialog.dart';
 
 /// Widget that allows authenticated photographers to manage (upload, preview, replace, delete)
@@ -37,6 +38,7 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
   Uint8List? _lastFailedBytes;
   String? _lastFailedFileName;
   int? _replaceIndexTarget;
+
   SupabaseClient? get _supabaseClient {
     if (widget.supabaseClient != null) return widget.supabaseClient;
     try {
@@ -81,7 +83,11 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
       final bytes = await file.readAsBytes();
       final fileName = file.name;
 
-      await _uploadBytes(bytes: bytes, fileName: fileName, replaceIndex: replaceIndex);
+      await _uploadBytes(
+        bytes: bytes,
+        fileName: fileName,
+        replaceIndex: replaceIndex,
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -100,7 +106,9 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
     final client = _supabaseClient;
     final userId = client?.auth.currentUser?.id;
     if (userId == null || client == null) {
-      setState(() => _errorMessage = 'Please sign in to upload portfolio images.');
+      setState(
+        () => _errorMessage = 'Please sign in to upload portfolio images.',
+      );
       return;
     }
 
@@ -111,7 +119,9 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
 
     setState(() {
       _isUploading = true;
-      _uploadStatusText = replaceIndex != null ? 'Replacing photo...' : 'Uploading photo...';
+      _uploadStatusText = replaceIndex != null
+          ? 'Replacing photo...'
+          : 'Uploading photo...';
       _errorMessage = null;
     });
 
@@ -127,7 +137,9 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
       final updatedList = List<String>.from(_portfolioUrls);
       String? oldUrlToDelete;
 
-      if (replaceIndex != null && replaceIndex >= 0 && replaceIndex < updatedList.length) {
+      if (replaceIndex != null &&
+          replaceIndex >= 0 &&
+          replaceIndex < updatedList.length) {
         oldUrlToDelete = updatedList[replaceIndex];
         updatedList[replaceIndex] = newUrl;
       } else {
@@ -168,8 +180,12 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(replaceIndex != null ? 'Photo replaced successfully!' : 'Photo uploaded successfully!'),
-            backgroundColor: Colors.green,
+            content: Text(
+              replaceIndex != null
+                  ? 'Photo replaced successfully!'
+                  : 'Photo uploaded successfully!',
+            ),
+            backgroundColor: AppColors.statusConfirmed,
             duration: const Duration(seconds: 2),
           ),
         );
@@ -215,14 +231,19 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Portfolio Photo'),
-        content: const Text('Are you sure you want to remove this image from your portfolio?'),
+        content: const Text(
+          'Are you sure you want to remove this image from your portfolio?',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.statusCancelled,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Delete'),
           ),
@@ -296,24 +317,32 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
           children: [
             Row(
               children: [
-                const Icon(Icons.collections, color: Colors.deepPurple),
+                const Icon(
+                  Icons.collections,
+                  color: AppColors.champagneGold,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Text(
                   'Portfolio Showcase (${_portfolioUrls.length})',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                    color: AppColors.warmIvory,
+                  ),
                 ),
               ],
             ),
             if (!_isUploading)
               ElevatedButton.icon(
                 key: const Key('add_portfolio_photo_button'),
-                icon: const Icon(Icons.add_a_photo, size: 18),
+                icon: const Icon(Icons.add_a_photo, size: 16),
                 label: const Text('Add Photo'),
                 onPressed: () => _pickAndUploadImage(),
               ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
 
         // Error message banner with Retry option
         if (_errorMessage != null)
@@ -321,18 +350,27 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.red.shade50,
-              border: Border.all(color: Colors.red.shade300),
-              borderRadius: BorderRadius.circular(8),
+              color: AppColors.darkSurfaceVariant,
+              border: Border.all(
+                color: AppColors.statusCancelled.withValues(alpha: 0.5),
+              ),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: Row(
               children: [
-                const Icon(Icons.error_outline, color: Colors.red),
+                const Icon(
+                  Icons.error_outline,
+                  color: AppColors.statusCancelled,
+                  size: 20,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     _errorMessage!,
-                    style: const TextStyle(color: Colors.red, fontSize: 13),
+                    style: const TextStyle(
+                      color: AppColors.statusCancelled,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
                 if (_lastFailedBytes != null)
@@ -352,20 +390,30 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.deepPurple.shade50,
-              borderRadius: BorderRadius.circular(8),
+              color: AppColors.darkSurfaceVariant,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppColors.champagneGold.withValues(alpha: 0.3),
+              ),
             ),
             child: Row(
               children: [
                 const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.champagneGold,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   _uploadStatusText ?? 'Processing image...',
-                  style: const TextStyle(fontWeight: FontWeight.w500, color: Colors.deepPurple),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.champagneGold,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -374,11 +422,11 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
         // Empty Portfolio Placeholder Card
         if (_portfolioUrls.isEmpty && !_isUploading)
           Card(
-            elevation: 1,
-            color: Colors.grey.shade50,
+            elevation: 0,
+            color: AppColors.darkSurfaceVariant,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-              side: BorderSide(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(14),
+              side: const BorderSide(color: AppColors.borderDark),
             ),
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -386,22 +434,33 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.add_photo_alternate_outlined, size: 48, color: Colors.grey.shade600),
+                    const Icon(
+                      Icons.add_photo_alternate_outlined,
+                      size: 44,
+                      color: AppColors.champagneGold,
+                    ),
                     const SizedBox(height: 12),
                     const Text(
                       'No Portfolio Photos Uploaded Yet',
-                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: AppColors.warmIvory,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     const Text(
                       'Upload high-quality samples of your work to attract potential clients.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
+                      style: TextStyle(
+                        color: AppColors.mutedSilver,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       key: const Key('empty_portfolio_upload_button'),
-                      icon: const Icon(Icons.upload_file),
+                      icon: const Icon(Icons.upload_file, size: 18),
                       label: const Text('Upload Your First Photo'),
                       onPressed: () => _pickAndUploadImage(),
                     ),
@@ -419,14 +478,14 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
             itemCount: _portfolioUrls.length,
             gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
               childAspectRatio: 1.0,
             ),
             itemBuilder: (context, index) {
               final url = _portfolioUrls[index];
               return ClipRRect(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(10),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
@@ -436,13 +495,19 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
                       loadingBuilder: (context, child, loadingProgress) {
                         if (loadingProgress == null) return child;
                         return const Center(
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.champagneGold,
+                          ),
                         );
                       },
                       errorBuilder: (context, error, stackTrace) {
                         return Container(
-                          color: Colors.grey.shade300,
-                          child: const Icon(Icons.broken_image, color: Colors.grey),
+                          color: AppColors.darkSurfaceVariant,
+                          child: const Icon(
+                            Icons.broken_image,
+                            color: AppColors.mutedSilver,
+                          ),
                         );
                       },
                     ),
@@ -455,8 +520,13 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
                             context,
                             imageUrl: url,
                             title: 'Portfolio Photo ${index + 1}',
-                            onReplace: _isUploading ? null : () => _pickAndUploadImage(replaceIndex: index),
-                            onDelete: _isUploading ? null : () => _confirmAndDeleteImage(index),
+                            onReplace: _isUploading
+                                ? null
+                                : () =>
+                                      _pickAndUploadImage(replaceIndex: index),
+                            onDelete: _isUploading
+                                ? null
+                                : () => _confirmAndDeleteImage(index),
                           ),
                           child: Container(
                             decoration: BoxDecoration(
@@ -483,27 +553,40 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
                         children: [
                           GestureDetector(
                             key: Key('replace_photo_button_$index'),
-                            onTap: _isUploading ? null : () => _pickAndUploadImage(replaceIndex: index),
+                            onTap: _isUploading
+                                ? null
+                                : () =>
+                                      _pickAndUploadImage(replaceIndex: index),
                             child: Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(5),
                               decoration: const BoxDecoration(
-                                color: Colors.black54,
+                                color: Colors.black87,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.swap_horiz, color: Colors.white, size: 16),
+                              child: const Icon(
+                                Icons.swap_horiz,
+                                color: AppColors.warmIvory,
+                                size: 14,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 4),
                           GestureDetector(
                             key: Key('delete_photo_button_$index'),
-                            onTap: _isUploading ? null : () => _confirmAndDeleteImage(index),
+                            onTap: _isUploading
+                                ? null
+                                : () => _confirmAndDeleteImage(index),
                             child: Container(
-                              padding: const EdgeInsets.all(4),
+                              padding: const EdgeInsets.all(5),
                               decoration: const BoxDecoration(
-                                color: Colors.black54,
+                                color: Colors.black87,
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.delete, color: Colors.redAccent, size: 16),
+                              child: const Icon(
+                                Icons.delete,
+                                color: AppColors.statusCancelled,
+                                size: 14,
+                              ),
                             ),
                           ),
                         ],

@@ -104,13 +104,12 @@ class PortfolioService {
     final mimeType = getMimeType(fileName);
 
     // 3. Upload to Supabase Storage
-    await client.storage.from(bucketName).uploadBinary(
+    await client.storage
+        .from(bucketName)
+        .uploadBinary(
           objectPath,
           bytes,
-          fileOptions: FileOptions(
-            contentType: mimeType,
-            upsert: true,
-          ),
+          fileOptions: FileOptions(contentType: mimeType, upsert: true),
         );
 
     // 4. Get and return public URL
