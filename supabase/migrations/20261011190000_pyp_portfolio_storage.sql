@@ -55,6 +55,8 @@ CREATE POLICY "Photographers can delete own portfolio images"
   );
 
 -- 3. Update register_as_photographer RPC to optionally accept p_portfolio_urls
+DROP FUNCTION IF EXISTS public.register_as_photographer(text, text, text, text, integer, text, text);
+
 CREATE OR REPLACE FUNCTION public.register_as_photographer(
   p_display_name text,
   p_bio text,
@@ -140,5 +142,5 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.register_as_photographer FROM public, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.register_as_photographer TO authenticated;
+REVOKE ALL ON FUNCTION public.register_as_photographer(text, text, text, text, integer, text, text, text[]) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.register_as_photographer(text, text, text, text, integer, text, text, text[]) TO authenticated;

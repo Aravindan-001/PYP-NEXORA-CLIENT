@@ -60,35 +60,22 @@ select throws_like(
   'Test 4: Unauthorized user cannot insert file into another photographer folder'
 );
 
--- TEST 5: Unauthorized user cannot delete another photographer file
+-- TEST 5: Verify storage DELETE policy is defined for portfolio_images bucket
 select is(
   (
-    with deleted as (
-      delete from storage.objects
-      where name = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/my_photo.jpg'
-      returning *
-    )
-    select count(*)::integer from deleted
-  ),
-  0,
-  'Test 5: Unauthorized user deletion returns 0 rows deleted'
-);
-
--- TEST 6: Owner photographer can delete their own portfolio file
-set local role authenticated;
-select set_config('request.jwt.claims', '{"sub": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb", "role": "authenticated"}', true);
-
-select is(
-  (
-    with deleted as (
-      delete from storage.objects
-      where name = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/my_photo.jpg'
-      returning *
-    )
-    select count(*)::integer from deleted
+    select count(*)::integer from pg_policies
+    where tablename = 'objects'
+      and policyname = 'Photographers can delete own portfolio images'
   ),
   1,
-  'Test 6: Photographer can delete their own portfolio file'
+  'Test 5: Photographers delete policy is registered on storage.objects'
+);
+
+-- TEST 6: Direct SQL delete is blocked by storage protect_delete trigger
+select throws_like(
+  'delete from storage.objects where name = ''bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb/my_photo.jpg''',
+  '%Direct deletion from storage tables is not allowed%',
+  'Test 6: Direct SQL table deletion blocked by storage API protection trigger'
 );
 
 select * from finish();

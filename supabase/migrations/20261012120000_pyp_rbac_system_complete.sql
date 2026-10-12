@@ -14,7 +14,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION private.is_admin FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION private.is_admin FROM public, anon;
+GRANT EXECUTE ON FUNCTION private.is_admin TO authenticated;
 
 CREATE OR REPLACE FUNCTION private.is_photographer(p_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
@@ -28,7 +29,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION private.is_photographer FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION private.is_photographer FROM public, anon;
+GRANT EXECUTE ON FUNCTION private.is_photographer TO authenticated;
 
 CREATE OR REPLACE FUNCTION private.is_customer(p_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
@@ -42,7 +44,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION private.is_customer FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION private.is_customer FROM public, anon;
+GRANT EXECUTE ON FUNCTION private.is_customer TO authenticated;
 
 -- 2. Secure Admin Provisioning Procedure
 -- Allows authorized administrative provisioning via SQL without exposing admin role to public signups.

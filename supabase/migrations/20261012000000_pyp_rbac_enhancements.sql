@@ -14,7 +14,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION private.is_admin FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION private.is_admin FROM public, anon;
+GRANT EXECUTE ON FUNCTION private.is_admin TO authenticated;
 
 CREATE OR REPLACE FUNCTION private.is_photographer(p_user_id uuid DEFAULT auth.uid())
 RETURNS boolean
@@ -28,7 +29,8 @@ AS $$
   );
 $$;
 
-REVOKE ALL ON FUNCTION private.is_photographer FROM public, anon, authenticated;
+REVOKE ALL ON FUNCTION private.is_photographer FROM public, anon;
+GRANT EXECUTE ON FUNCTION private.is_photographer TO authenticated;
 
 -- 2. Enhanced handle_new_user trigger supporting Client vs Photographer signup
 CREATE OR REPLACE FUNCTION private.handle_new_user()

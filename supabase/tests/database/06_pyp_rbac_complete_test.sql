@@ -2,9 +2,9 @@
 begin;
 select plan(12);
 
--- Seed auth users
+-- Seed base auth users
 insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000001', 'admin_rbac@test.com');
-insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000002', 'client_rbac@test.com');
+insert into auth.users (id, email, raw_user_meta_data) values ('10000000-0000-0000-0000-000000000002', 'client_rbac@test.com', '{"full_name": "Client Test", "requested_role": "customer"}'::jsonb);
 insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000003', 'photo_rbac@test.com');
 
 -- TEST 1: Provision Admin safely using private.provision_admin
@@ -22,10 +22,6 @@ select is(
 );
 
 -- TEST 2: Client signup via trigger creates client profile and customer role
-select private.handle_new_user() from (
-  select '10000000-0000-0000-0000-000000000002'::uuid as id, 'client_rbac@test.com' as email, jsonb_build_object('full_name', 'Client Test', 'requested_role', 'customer') as raw_user_meta_data
-) as new;
-
 select is(
   (select count(*)::integer from public.user_roles where user_id = '10000000-0000-0000-0000-000000000002' and role = 'customer'),
   1,
@@ -33,9 +29,8 @@ select is(
 );
 
 -- TEST 3: Attempt to self-assign admin via requested_role metadata strictly fails/ignores admin
-select private.handle_new_user() from (
-  select '10000000-0000-0000-0000-000000000004'::uuid as id, 'hacker@test.com' as email, jsonb_build_object('full_name', 'Hacker', 'requested_role', 'admin') as raw_user_meta_data
-) as new;
+insert into auth.users (id, email, raw_user_meta_data)
+values ('10000000-0000-0000-0000-000000000004', 'hacker@test.com', '{"full_name": "Hacker", "requested_role": "admin"}'::jsonb);
 
 select is(
   (select count(*)::integer from public.user_roles where user_id = '10000000-0000-0000-0000-000000000004' and role = 'admin'),
