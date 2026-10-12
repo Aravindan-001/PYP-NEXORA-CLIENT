@@ -11,7 +11,8 @@ import 'widgets/portfolio_manager_widget.dart';
 
 // Safe Local Supabase Configuration
 const String supabaseUrl = 'http://127.0.0.1:54321';
-const String supabaseAnonKey = 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+const String supabaseAnonKey =
+    'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,7 +36,7 @@ class PYPApp extends StatelessWidget {
   }
 }
 
-/// Authentication state router
+/// Authentication State Router
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 
@@ -54,7 +55,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-/// 1. Authentication Screen: Branded, elegant sign-in / sign-up screen
+/// 1. Role-Aware Authentication Screen
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
 
@@ -66,9 +67,13 @@ class _AuthScreenState extends State<AuthScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
+
   bool _isSignUp = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
+
+  // Selected signup role: 'customer' or 'photographer' (Admin role strictly disallowed)
+  String _selectedSignUpRole = 'customer';
 
   @override
   void dispose() {
@@ -107,17 +112,24 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (_isSignUp) {
+        // Enforce safe role selection (admin is strictly forbidden via client signup)
+        final safeRole =
+            _selectedSignUpRole == 'photographer' ? 'photographer' : 'customer';
+
         await supabase.auth.signUp(
           email: email,
           password: password,
-          data: {'full_name': name},
+          data: {'full_name': name, 'requested_role': safeRole},
         );
+
         if (mounted) {
+          final message = safeRole == 'photographer'
+              ? 'Photographer account registered! Application pending admin approval.'
+              : 'Account created! Please sign in with your credentials.';
+
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Registration successful! Please sign in with your credentials.',
-              ),
+            SnackBar(
+              content: Text(message),
               backgroundColor: AppColors.statusConfirmed,
             ),
           );
@@ -163,7 +175,7 @@ class _AuthScreenState extends State<AuthScreen> {
               vertical: 32.0,
             ),
             child: Container(
-              constraints: const BoxConstraints(maxWidth: 440),
+              constraints: const BoxConstraints(maxWidth: 460),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -221,7 +233,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _isSignUp ? 'Create Account' : 'Welcome Back',
+                            _isSignUp ? 'Create PYP Account' : 'Welcome Back',
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -231,16 +243,79 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 6),
                           Text(
                             _isSignUp
-                                ? 'Sign up to discover and book elite photographers.'
-                                : 'Sign in to manage your bookings and portfolio.',
+                                ? 'Select your account type to join the PYP platform.'
+                                : 'Sign in to access your dashboard, bookings, and profile.',
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.mutedSilver,
                             ),
                           ),
-                          const SizedBox(height: 24),
+                          const SizedBox(height: 20),
 
                           if (_isSignUp) ...[
+                            // Role Selector Segment
+                            const Text(
+                              'ACCOUNT TYPE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.champagneGold,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: ChoiceChip(
+                                    label: const Center(
+                                      child: Text('Client / Customer'),
+                                    ),
+                                    selected:
+                                        _selectedSignUpRole == 'customer',
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        setState(
+                                          () => _selectedSignUpRole =
+                                              'customer',
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: ChoiceChip(
+                                    label: const Center(
+                                      child: Text('Photographer'),
+                                    ),
+                                    selected:
+                                        _selectedSignUpRole == 'photographer',
+                                    onSelected: (selected) {
+                                      if (selected) {
+                                        setState(
+                                          () => _selectedSignUpRole =
+                                              'photographer',
+                                        );
+                                      }
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              _selectedSignUpRole == 'photographer'
+                                  ? 'Photographer accounts submit a portfolio for admin review.'
+                                  : 'Client accounts can discover, search, and book photographers.',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.mutedSilver,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+
                             TextField(
                               controller: _nameController,
                               decoration: const InputDecoration(
@@ -334,7 +409,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 }
 
-/// 7. Navigation & Responsive Layout Shell
+/// 2. Navigation Shell & Role-Based Access Controller
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -346,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   Set<String> _userRoles = {'customer'};
   bool _isLoadingRoles = true;
+  String? _rolesError;
 
   @override
   void initState() {
@@ -354,6 +430,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchUserRoles() async {
+    setState(() {
+      _isLoadingRoles = true;
+      _rolesError = null;
+    });
+
     try {
       final res = await supabase.rpc('get_my_roles');
       if (res != null && res is List) {
@@ -366,26 +447,116 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
         }
       }
-    } catch (_) {}
-    if (mounted) setState(() => _isLoadingRoles = false);
+      // Fallback role if empty
+      setState(() {
+        _userRoles = {'customer'};
+        _isLoadingRoles = false;
+      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _rolesError = e.toString();
+          _userRoles = {'customer'};
+          _isLoadingRoles = false;
+        });
+      }
+    }
   }
 
   bool get isAdmin => _userRoles.contains('admin');
+  bool get isPhotographer => _userRoles.contains('photographer');
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingRoles) {
+      return const Scaffold(
+        body: EditorialLoadingWidget(
+          label: 'Verifying permissions & loading dashboard...',
+        ),
+      );
+    }
+
+    if (_rolesError != null && _userRoles.isEmpty) {
+      return Scaffold(
+        body: EditorialErrorWidget(
+          errorMessage: 'Failed to verify account roles: $_rolesError',
+          onRetry: _fetchUserRoles,
+        ),
+      );
+    }
+
     final userEmail = supabase.auth.currentUser?.email ?? 'User';
     final screenWidth = MediaQuery.of(context).size.width;
     final isWideScreen = screenWidth >= 720;
 
+    // Define navigation screens according to user role permissions
     final screens = <Widget>[
-      const PhotographerListScreen(),
+      const DiscoverScreen(),
       const BookingsScreen(),
       PhotographerProfileScreen(onProfileUpdated: _fetchUserRoles),
-      if (isAdmin) const AdminModerationScreen(),
+      if (isAdmin) const AdminDashboardScreen(),
     ];
 
-    // Ensure selected index is within range
+    final destinations = <NavigationRailDestination>[
+      const NavigationRailDestination(
+        icon: Icon(Icons.search),
+        selectedIcon: Icon(Icons.search, color: AppColors.champagneGold),
+        label: Text('Discover'),
+      ),
+      const NavigationRailDestination(
+        icon: Icon(Icons.calendar_month_outlined),
+        selectedIcon: Icon(
+          Icons.calendar_month,
+          color: AppColors.champagneGold,
+        ),
+        label: Text('Bookings'),
+      ),
+      NavigationRailDestination(
+        icon: const Icon(Icons.person_outline),
+        selectedIcon: const Icon(Icons.person, color: AppColors.champagneGold),
+        label: Text(isPhotographer ? 'Photographer' : 'Profile'),
+      ),
+      if (isAdmin)
+        const NavigationRailDestination(
+          icon: Icon(Icons.admin_panel_settings_outlined),
+          selectedIcon: Icon(
+            Icons.admin_panel_settings,
+            color: AppColors.champagneGold,
+          ),
+          label: Text('Admin'),
+        ),
+    ];
+
+    final bottomNavItems = <BottomNavigationBarItem>[
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.search),
+        activeIcon: Icon(Icons.search, color: AppColors.champagneGold),
+        label: 'Discover',
+      ),
+      const BottomNavigationBarItem(
+        icon: Icon(Icons.calendar_month_outlined),
+        activeIcon: Icon(
+          Icons.calendar_month,
+          color: AppColors.champagneGold,
+        ),
+        label: 'Bookings',
+      ),
+      BottomNavigationBarItem(
+        icon: const Icon(Icons.person_outline),
+        activeIcon: const Icon(Icons.person, color: AppColors.champagneGold),
+        label: isPhotographer ? 'Photographer' : 'Profile',
+      ),
+      if (isAdmin)
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.admin_panel_settings_outlined),
+          activeIcon: Icon(
+            Icons.admin_panel_settings,
+            color: AppColors.champagneGold,
+          ),
+          label: 'Admin',
+        ),
+    ];
+
     final activeIndex = _currentIndex < screens.length ? _currentIndex : 0;
 
     return Scaffold(
@@ -418,17 +589,11 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          // User Badge Dropdown / Summary
+          // Role Badges Display
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: Row(
               children: [
-                const Icon(
-                  Icons.account_circle,
-                  size: 20,
-                  color: AppColors.mutedSilver,
-                ),
-                const SizedBox(width: 6),
                 Text(
                   userEmail.split('@').first,
                   style: const TextStyle(
@@ -437,31 +602,39 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (!_isLoadingRoles)
-                  Wrap(
-                    spacing: 4,
-                    children: _userRoles.map((role) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 2,
+                Wrap(
+                  spacing: 4,
+                  children: _userRoles.map((role) {
+                    final isRoleAdmin = role == 'admin';
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isRoleAdmin
+                            ? AppColors.champagneGold.withValues(alpha: 0.2)
+                            : AppColors.darkSurfaceVariant,
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: isRoleAdmin
+                              ? AppColors.champagneGold
+                              : AppColors.borderDark,
                         ),
-                        decoration: BoxDecoration(
-                          color: AppColors.darkSurfaceVariant,
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: AppColors.borderDark),
+                      ),
+                      child: Text(
+                        role.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 9,
+                          color: isRoleAdmin
+                              ? AppColors.champagneGold
+                              : AppColors.mutedSilver,
+                          fontWeight: FontWeight.bold,
                         ),
-                        child: Text(
-                          role.toUpperCase(),
-                          style: const TextStyle(
-                            fontSize: 9,
-                            color: AppColors.champagneGold,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                      ),
+                    );
+                  }).toList(),
+                ),
               ],
             ),
           ),
@@ -480,41 +653,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   onDestinationSelected: (index) =>
                       setState(() => _currentIndex = index),
                   labelType: NavigationRailLabelType.all,
-                  destinations: [
-                    const NavigationRailDestination(
-                      icon: Icon(Icons.search),
-                      selectedIcon: Icon(
-                        Icons.search,
-                        color: AppColors.champagneGold,
-                      ),
-                      label: Text('Discover'),
-                    ),
-                    const NavigationRailDestination(
-                      icon: Icon(Icons.calendar_month_outlined),
-                      selectedIcon: Icon(
-                        Icons.calendar_month,
-                        color: AppColors.champagneGold,
-                      ),
-                      label: Text('Bookings'),
-                    ),
-                    const NavigationRailDestination(
-                      icon: Icon(Icons.person_outline),
-                      selectedIcon: Icon(
-                        Icons.person,
-                        color: AppColors.champagneGold,
-                      ),
-                      label: Text('Profile'),
-                    ),
-                    if (isAdmin)
-                      const NavigationRailDestination(
-                        icon: Icon(Icons.admin_panel_settings_outlined),
-                        selectedIcon: Icon(
-                          Icons.admin_panel_settings,
-                          color: AppColors.champagneGold,
-                        ),
-                        label: Text('Moderation'),
-                      ),
-                  ],
+                  destinations: destinations,
                 ),
                 const VerticalDivider(
                   width: 1,
@@ -530,55 +669,21 @@ class _HomeScreenState extends State<HomeScreen> {
           : BottomNavigationBar(
               currentIndex: activeIndex,
               onTap: (index) => setState(() => _currentIndex = index),
-              items: [
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.search),
-                  activeIcon: Icon(
-                    Icons.search,
-                    color: AppColors.champagneGold,
-                  ),
-                  label: 'Discover',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.calendar_month_outlined),
-                  activeIcon: Icon(
-                    Icons.calendar_month,
-                    color: AppColors.champagneGold,
-                  ),
-                  label: 'Bookings',
-                ),
-                const BottomNavigationBarItem(
-                  icon: Icon(Icons.person_outline),
-                  activeIcon: Icon(
-                    Icons.person,
-                    color: AppColors.champagneGold,
-                  ),
-                  label: 'Profile',
-                ),
-                if (isAdmin)
-                  const BottomNavigationBarItem(
-                    icon: Icon(Icons.admin_panel_settings_outlined),
-                    activeIcon: Icon(
-                      Icons.admin_panel_settings,
-                      color: AppColors.champagneGold,
-                    ),
-                    label: 'Moderation',
-                  ),
-              ],
+              items: bottomNavItems,
             ),
     );
   }
 }
 
-/// 2. Discover Screen: Editorial hero, search, category filters, photographer grid
-class PhotographerListScreen extends StatefulWidget {
-  const PhotographerListScreen({super.key});
+/// 3. Discover Screen (Public Discovery for Published Photographers)
+class DiscoverScreen extends StatefulWidget {
+  const DiscoverScreen({super.key});
 
   @override
-  State<PhotographerListScreen> createState() => _PhotographerListScreenState();
+  State<DiscoverScreen> createState() => _DiscoverScreenState();
 }
 
-class _PhotographerListScreenState extends State<PhotographerListScreen> {
+class _DiscoverScreenState extends State<DiscoverScreen> {
   late Future<List<Map<String, dynamic>>> _photographersFuture;
   final _searchController = TextEditingController();
   String _searchQuery = '';
@@ -607,13 +712,21 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
     super.dispose();
   }
 
-  void _fetchPhotographers() {
-    setState(() {
-      _photographersFuture = supabase
+  Future<List<Map<String, dynamic>>> _getPublishedPhotographers() async {
+    try {
+      final data = await supabase
           .from('photographer_profiles')
           .select()
-          .eq('is_published', true)
-          .then((data) => List<Map<String, dynamic>>.from(data));
+          .eq('is_published', true);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _fetchPhotographers() {
+    setState(() {
+      _photographersFuture = _getPublishedPhotographers();
     });
   }
 
@@ -626,7 +739,7 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
         onRefresh: () async => _fetchPhotographers(),
         child: CustomScrollView(
           slivers: [
-            // Editorial Hero Section
+            // Hero Search Section
             SliverToBoxAdapter(
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -655,7 +768,7 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Search Bar
+                    // Search Input Bar
                     TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
@@ -684,7 +797,7 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Event-Category Filters
+                    // Category Filter Chips
                     SizedBox(
                       height: 38,
                       child: ListView.builder(
@@ -721,7 +834,7 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const EditorialLoadingWidget(
-                      label: 'Curating portfolio marketplace...',
+                      label: 'Curating published photographers...',
                     );
                   }
                   if (snapshot.hasError) {
@@ -740,14 +853,12 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
                         .toString()
                         .toLowerCase();
 
-                    // Search query filter
                     final matchesSearch =
                         _searchQuery.isEmpty ||
                         city.contains(_searchQuery) ||
                         cat.contains(_searchQuery) ||
                         name.contains(_searchQuery);
 
-                    // Category chip filter
                     final matchesCategory =
                         _selectedCategoryFilter == 'All' ||
                         cat.contains(_selectedCategoryFilter.toLowerCase());
@@ -758,12 +869,12 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
                   if (filteredList.isEmpty) {
                     return EmptyStateWidget(
                       icon: Icons.camera_alt_outlined,
-                      title: 'No Photographers Found',
+                      title: 'No Published Photographers',
                       message:
                           _searchQuery.isNotEmpty ||
                               _selectedCategoryFilter != 'All'
                           ? 'No published photographers match your search query or category filter.'
-                          : 'There are currently no published photographers available.',
+                          : 'There are currently no approved photographers available in the marketplace.',
                       actionLabel:
                           _searchQuery.isNotEmpty ||
                               _selectedCategoryFilter != 'All'
@@ -801,7 +912,7 @@ class _PhotographerListScreenState extends State<PhotographerListScreen> {
   }
 }
 
-/// 4. My Bookings Screen: Booking list, readable status badges, customer/photographer actions
+/// 4. Bookings Screen (Customer & Photographer Authorized Views)
 class BookingsScreen extends StatefulWidget {
   const BookingsScreen({super.key});
 
@@ -826,13 +937,21 @@ class _BookingsScreenState extends State<BookingsScreen> {
     super.dispose();
   }
 
-  void _fetchBookings() {
-    setState(() {
-      _bookingsFuture = supabase
+  Future<List<Map<String, dynamic>>> _getUserBookings() async {
+    try {
+      final data = await supabase
           .from('bookings')
           .select('*, photographer_profiles(display_name)')
-          .order('created_at', ascending: false)
-          .then((data) => List<Map<String, dynamic>>.from(data));
+          .order('created_at', ascending: false);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _fetchBookings() {
+    setState(() {
+      _bookingsFuture = _getUserBookings();
     });
   }
 
@@ -918,7 +1037,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
             ),
             const SizedBox(height: 12),
             const Text(
-              'Razorpay integration is configured and ready in Edge Functions. To proceed with test/live payment, connect to your environment Razorpay API keys.',
+              'Razorpay integration is configured in Edge Functions. Payment order verification will process deposit and advance booking to confirmed.',
               style: TextStyle(
                 color: AppColors.mutedSilver,
                 fontSize: 13,
@@ -1057,9 +1176,9 @@ class _BookingsScreenState extends State<BookingsScreen> {
             if (bookings.isEmpty) {
               return const EmptyStateWidget(
                 icon: Icons.calendar_today_outlined,
-                title: 'No Bookings Yet',
+                title: 'No Active Bookings',
                 message:
-                    'Explore our curated marketplace to reserve your first photo session.',
+                    'Explore our curated marketplace to reserve your photo sessions.',
               );
             }
 
@@ -1086,7 +1205,7 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 }
 
-/// 5. Photographer Profile Screen: Structured onboarding, portfolio management, publication status
+/// 5. Photographer Profile & Portfolio Management Screen
 class PhotographerProfileScreen extends StatefulWidget {
   final VoidCallback? onProfileUpdated;
 
@@ -1153,7 +1272,6 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
         _isPublished = profileRes['is_published'] == true;
         _portfolioUrls = List<String>.from(profileRes['portfolio_urls'] ?? []);
 
-        // Load private details if present
         final photoId = profileRes['id'];
         final privateRes = await supabase
             .from('photographer_private_details')
@@ -1212,7 +1330,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Profile saved successfully! Pending admin moderation/publishing.',
+              'Profile updated successfully! Pending admin approval for public discovery.',
             ),
             backgroundColor: AppColors.statusConfirmed,
           ),
@@ -1224,7 +1342,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Registration failed: $e'),
+            content: Text('Update failed: $e'),
             backgroundColor: AppColors.statusCancelled,
           ),
         );
@@ -1241,13 +1359,13 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Photographer Profile & Portfolio')),
+      appBar: AppBar(title: const Text('Photographer Portal & Profile')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Status Card
+            // Status Card Banner
             Container(
               padding: const EdgeInsets.all(16.0),
               decoration: BoxDecoration(
@@ -1277,7 +1395,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
                       children: [
                         Text(
                           _isPublished
-                              ? 'PUBLISHED & ACTIVE'
+                              ? 'APPROVED & PUBLISHED'
                               : 'PENDING MODERATION',
                           style: TextStyle(
                             fontSize: 11,
@@ -1291,10 +1409,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
                         const SizedBox(height: 2),
                         Text(
                           _isPublished
-                              ? 'Your listing is published and visible on the Discover marketplace.'
+                              ? 'Your listing is active and discoverable on the PYP marketplace.'
                               : _hasExistingProfile
-                              ? 'Your profile is submitted and awaiting admin moderation.'
-                              : 'Complete and submit your profile details below to apply as a photographer.',
+                              ? 'Your application is submitted and awaiting admin moderation.'
+                              : 'Complete your profile details below to apply as a photographer.',
                           style: const TextStyle(
                             fontSize: 13,
                             color: AppColors.warmIvory,
@@ -1308,7 +1426,6 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Form Title
             const Text(
               'PUBLIC PROFILE DETAILS',
               style: TextStyle(
@@ -1330,7 +1447,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             TextField(
               controller: _bioController,
               decoration: const InputDecoration(
-                labelText: 'Bio / Experience & Style',
+                labelText: 'Bio / Style & Portfolio Overview',
               ),
               maxLines: 3,
             ),
@@ -1365,11 +1482,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Private Details Title
             const Text(
-              'PRIVATE CONTACT DETAILS (RESTRICTED)',
+              'PRIVATE CONTACT DETAILS (RESTRICTED TO CONFIRMED CLIENTS)',
               style: TextStyle(
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.bold,
                 color: AppColors.champagneGold,
                 letterSpacing: 1.2,
@@ -1379,7 +1495,7 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             TextField(
               controller: _phoneController,
               decoration: const InputDecoration(
-                labelText: 'Phone Number (For Confirmed Clients Only)',
+                labelText: 'Phone Number (For Confirmed Clients)',
               ),
               keyboardType: TextInputType.phone,
             ),
@@ -1387,13 +1503,13 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             TextField(
               controller: _emailController,
               decoration: const InputDecoration(
-                labelText: 'Contact Email (For Confirmed Clients Only)',
+                labelText: 'Contact Email (For Confirmed Clients)',
               ),
               keyboardType: TextInputType.emailAddress,
             ),
             const SizedBox(height: 28),
 
-            // Portfolio Showcase Management Section
+            // Portfolio Showcase Manager
             PortfolioManagerWidget(
               initialPortfolioUrls: _portfolioUrls,
               onPortfolioUpdated: (updatedUrls) {
@@ -1402,7 +1518,6 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
             ),
             const SizedBox(height: 28),
 
-            // Submit Button
             _isLoading
                 ? const EditorialLoadingWidget(
                     label: 'Saving photographer profile...',
@@ -1426,57 +1541,109 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
   }
 }
 
-/// 6. Admin Moderation Screen: Clean pending-application cards with approve/reject confirmation
-class AdminModerationScreen extends StatefulWidget {
-  const AdminModerationScreen({super.key});
+/// 6. Admin Dashboard Screen (Full Platform Governance & Moderation)
+class AdminDashboardScreen extends StatefulWidget {
+  const AdminDashboardScreen({super.key});
 
   @override
-  State<AdminModerationScreen> createState() => _AdminModerationScreenState();
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-class _AdminModerationScreenState extends State<AdminModerationScreen> {
-  late Future<List<Map<String, dynamic>>> _pendingFuture;
+class _AdminDashboardScreenState extends State<AdminDashboardScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+
+  late Future<Map<String, dynamic>> _statsFuture;
+  late Future<List<Map<String, dynamic>>> _photographersFuture;
+  late Future<List<Map<String, dynamic>>> _bookingsFuture;
+  late Future<List<Map<String, dynamic>>> _clientsFuture;
+
+  String _statusFilter = 'All';
 
   @override
   void initState() {
     super.initState();
-    _fetchPending();
+    _tabController = TabController(length: 3, vsync: this);
+    _refreshAll();
   }
 
-  void _fetchPending() {
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<Map<String, dynamic>> _fetchStats() async {
+    try {
+      final data = await supabase.rpc('admin_get_platform_stats');
+      if (data != null && data is List && data.isNotEmpty) {
+        return Map<String, dynamic>.from(data.first);
+      }
+    } catch (_) {}
+    return {};
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchPhotographers() async {
+    try {
+      final data = await supabase.rpc('admin_get_all_photographers');
+      if (data != null && data is List) {
+        return List<Map<String, dynamic>>.from(data);
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchBookings() async {
+    try {
+      final data = await supabase.rpc('admin_get_all_bookings');
+      if (data != null && data is List) {
+        return List<Map<String, dynamic>>.from(data);
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchClients() async {
+    try {
+      final data = await supabase.rpc('admin_get_all_clients');
+      if (data != null && data is List) {
+        return List<Map<String, dynamic>>.from(data);
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  void _refreshAll() {
     setState(() {
-      _pendingFuture = supabase
-          .rpc('admin_get_pending_photographers')
-          .then((data) => List<Map<String, dynamic>>.from(data ?? []));
+      _statsFuture = _fetchStats();
+      _photographersFuture = _fetchPhotographers();
+      _bookingsFuture = _fetchBookings();
+      _clientsFuture = _fetchClients();
     });
   }
 
   Future<void> _moderatePhotographer(
-    String photographerId,
-    String name,
-    bool approve,
+    String photoId,
+    String displayName,
+    String action,
   ) async {
     try {
       await supabase.rpc(
-        'admin_moderate_photographer',
-        params: {'p_photographer_id': photographerId, 'p_approve': approve},
+        'admin_manage_photographer_status',
+        params: {'p_photographer_id': photoId, 'p_action': action},
       );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              approve
-                  ? 'Photographer "$name" approved & published!'
-                  : 'Photographer "$name" rejected / kept unpublished.',
+              'Photographer "$displayName" action "$action" completed.',
             ),
-            backgroundColor: approve
-                ? AppColors.statusConfirmed
-                : AppColors.statusRequested,
+            backgroundColor: AppColors.statusConfirmed,
           ),
         );
       }
-      _fetchPending();
+      _refreshAll();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1493,197 +1660,617 @@ class _AdminModerationScreenState extends State<AdminModerationScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Admin Photographer Moderation'),
+        title: const Text('Admin Platform Governance'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
-            onPressed: _fetchPending,
-            tooltip: 'Refresh Pending Applications',
+            onPressed: _refreshAll,
+            tooltip: 'Refresh Platform Data',
           ),
         ],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: AppColors.champagneGold,
+          labelColor: AppColors.champagneGold,
+          unselectedLabelColor: AppColors.mutedSilver,
+          tabs: const [
+            Tab(icon: Icon(Icons.verified_user), text: 'Photographers'),
+            Tab(icon: Icon(Icons.receipt_long), text: 'All Bookings'),
+            Tab(icon: Icon(Icons.people), text: 'Clients'),
+          ],
+        ),
       ),
-      body: RefreshIndicator(
-        color: AppColors.champagneGold,
-        backgroundColor: AppColors.darkSurface,
-        onRefresh: () async => _fetchPending(),
-        child: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _pendingFuture,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const EditorialLoadingWidget(
-                label: 'Fetching pending photographer applications...',
-              );
-            }
-
-            if (snapshot.hasError) {
-              return EditorialErrorWidget(
-                errorMessage:
-                    'Failed to load pending applications: ${snapshot.error}',
-                onRetry: _fetchPending,
-              );
-            }
-
-            final pendingList = snapshot.data ?? [];
-
-            if (pendingList.isEmpty) {
-              return const EmptyStateWidget(
-                icon: Icons.verified_user_outlined,
-                title: 'No Pending Applications',
-                message:
-                    'All photographer profile submissions have been moderated.',
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              itemCount: pendingList.length,
-              itemBuilder: (context, index) {
-                final photo = pendingList[index];
-                final photoId = (photo['out_id'] ?? photo['id']).toString();
-                final displayName =
-                    (photo['out_display_name'] ??
-                            photo['display_name'] ??
-                            'Unnamed')
-                        .toString();
-                final city = (photo['out_city'] ?? photo['city'] ?? 'N/A')
-                    .toString();
-                final category =
-                    (photo['out_category'] ?? photo['category'] ?? 'N/A')
-                        .toString();
-                final bio = (photo['out_bio'] ?? photo['bio'] ?? '').toString();
-                final pricePaise =
-                    (photo['out_starting_price_paise'] ??
-                            photo['starting_price_paise'] ??
-                            0)
-                        as int;
-                final priceINR = pricePaise / 100.0;
-
-                return Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(18.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                displayName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 18,
-                                  color: AppColors.warmIvory,
-                                ),
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.statusRequested.withValues(
-                                  alpha: 0.15,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: AppColors.statusRequested.withValues(
-                                    alpha: 0.4,
-                                  ),
-                                ),
-                              ),
-                              child: const Text(
-                                'PENDING',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.statusRequested,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          '$category • $city',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.champagneGold,
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Starting Price: ₹${priceINR.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            color: AppColors.mutedSilver,
-                            fontSize: 13,
-                          ),
-                        ),
-                        if (bio.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(
-                            'Bio: $bio',
-                            style: const TextStyle(
-                              color: AppColors.warmIvory,
-                              fontSize: 13,
-                              fontStyle: FontStyle.italic,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 18),
-
-                        Row(
-                          children: [
-                            Expanded(
-                              child: ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: AppColors.statusConfirmed,
-                                  foregroundColor: AppColors.warmIvory,
-                                ),
-                                icon: const Icon(Icons.check_circle, size: 16),
-                                label: const Text('Approve & Publish'),
-                                onPressed: () => _moderatePhotographer(
-                                  photoId,
-                                  displayName,
-                                  true,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: AppColors.statusCancelled,
-                                  side: const BorderSide(
-                                    color: AppColors.statusCancelled,
-                                  ),
-                                ),
-                                icon: const Icon(Icons.cancel, size: 16),
-                                label: const Text('Reject'),
-                                onPressed: () => _moderatePhotographer(
-                                  photoId,
-                                  displayName,
-                                  false,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+      body: Column(
+        children: [
+          // Platform Statistics Summary Bar
+          FutureBuilder<Map<String, dynamic>>(
+            future: _statsFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LinearProgressIndicator(
+                  color: AppColors.champagneGold,
+                  backgroundColor: AppColors.darkSurface,
+                );
+              }
+              if (snapshot.hasError) {
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  color: AppColors.statusCancelled.withValues(alpha: 0.15),
+                  child: Text(
+                    'Stats Error: ${snapshot.error}',
+                    style: const TextStyle(
+                      color: AppColors.statusCancelled,
+                      fontSize: 12,
                     ),
                   ),
                 );
-              },
-            );
-          },
+              }
+
+              final stats = snapshot.data ?? {};
+              final totalClients = stats['total_clients'] ?? 0;
+              final totalPhotos = stats['total_photographers'] ?? 0;
+              final pendingPhotos = stats['pending_photographers'] ?? 0;
+              final approvedPhotos = stats['approved_photographers'] ?? 0;
+              final totalBookings = stats['total_bookings'] ?? 0;
+              final revenuePaise = (stats['total_revenue_paise'] ?? 0) as int;
+              final revenueINR = revenuePaise / 100.0;
+
+              return Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                decoration: const BoxDecoration(color: AppColors.obsidian),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      _buildStatBadge(
+                        'Clients',
+                        '$totalClients',
+                        Icons.people,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildStatBadge(
+                        'Photographers',
+                        '$totalPhotos',
+                        Icons.camera_alt,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildStatBadge(
+                        'Pending',
+                        '$pendingPhotos',
+                        Icons.pending,
+                        highlight: pendingPhotos > 0,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildStatBadge(
+                        'Approved',
+                        '$approvedPhotos',
+                        Icons.check_circle,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildStatBadge(
+                        'Bookings',
+                        '$totalBookings',
+                        Icons.calendar_month,
+                      ),
+                      const SizedBox(width: 8),
+                      _buildStatBadge(
+                        'Revenue',
+                        '₹${revenueINR.toStringAsFixed(0)}',
+                        Icons.payments,
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // Tabbed Content Views
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                // 1. Photographers Management & Moderation Tab
+                _buildPhotographersTab(),
+
+                // 2. All Bookings Monitor Tab
+                _buildBookingsTab(),
+
+                // 3. Registered Clients Directory Tab
+                _buildClientsTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatBadge(
+    String label,
+    String value,
+    IconData icon, {
+    bool highlight = false,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: highlight
+            ? AppColors.statusRequested.withValues(alpha: 0.2)
+            : AppColors.darkSurfaceVariant,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: highlight
+              ? AppColors.statusRequested
+              : AppColors.borderDark,
         ),
       ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 16,
+            color: highlight
+                ? AppColors.statusRequested
+                : AppColors.champagneGold,
+          ),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 9,
+                  color: AppColors.mutedSilver,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.warmIvory,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPhotographersTab() {
+    return RefreshIndicator(
+      color: AppColors.champagneGold,
+      backgroundColor: AppColors.darkSurface,
+      onRefresh: () async => _refreshAll(),
+      child: FutureBuilder<List<Map<String, dynamic>>>(
+        future: _photographersFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const EditorialLoadingWidget(
+              label: 'Loading platform photographers...',
+            );
+          }
+          if (snapshot.hasError) {
+            return EditorialErrorWidget(
+              errorMessage: 'Failed to fetch photographers: ${snapshot.error}',
+              onRetry: _refreshAll,
+            );
+          }
+
+          final allList = snapshot.data ?? [];
+
+          final filtered = allList.where((p) {
+            final isPub = p['out_is_published'] == true;
+            if (_statusFilter == 'Pending') return !isPub;
+            if (_statusFilter == 'Approved') return isPub;
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              // Filter Chips
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    const Text(
+                      'STATUS FILTER: ',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.mutedSilver,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Wrap(
+                      spacing: 8,
+                      children: ['All', 'Pending', 'Approved'].map((f) {
+                        final sel = _statusFilter == f;
+                        return ChoiceChip(
+                          label: Text(f),
+                          selected: sel,
+                          onSelected: (selected) {
+                            if (selected) setState(() => _statusFilter = f);
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+
+              Expanded(
+                child: filtered.isEmpty
+                    ? const EmptyStateWidget(
+                        icon: Icons.camera_alt_outlined,
+                        title: 'No Photographers Found',
+                        message: 'No photographers match the selected status.',
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: filtered.length,
+                        itemBuilder: (context, index) {
+                          final photo = filtered[index];
+                          final photoId = photo['out_id'].toString();
+                          final name = photo['out_display_name'] ?? 'Unnamed';
+                          final city = photo['out_city'] ?? 'N/A';
+                          final category = photo['out_category'] ?? 'N/A';
+                          final bio = photo['out_bio'] ?? '';
+                          final pricePaise =
+                              (photo['out_starting_price_paise'] ?? 0) as int;
+                          final priceINR = pricePaise / 100.0;
+                          final isPublished =
+                              photo['out_is_published'] == true;
+                          final phone = photo['out_phone'] ?? 'N/A';
+                          final email = photo['out_email'] ?? 'N/A';
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          name,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.warmIvory,
+                                          ),
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: isPublished
+                                              ? AppColors.statusConfirmed
+                                                  .withValues(alpha: 0.15)
+                                              : AppColors.statusRequested
+                                                  .withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(
+                                            8,
+                                          ),
+                                          border: Border.all(
+                                            color: isPublished
+                                                ? AppColors.statusConfirmed
+                                                    .withValues(alpha: 0.4)
+                                                : AppColors.statusRequested
+                                                    .withValues(alpha: 0.4),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          isPublished ? 'APPROVED' : 'PENDING',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: isPublished
+                                                ? AppColors.statusConfirmed
+                                                : AppColors.statusRequested,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '$category • $city • ₹${priceINR.toStringAsFixed(0)} starting',
+                                    style: const TextStyle(
+                                      color: AppColors.champagneGold,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Contact: $email | Phone: $phone',
+                                    style: const TextStyle(
+                                      color: AppColors.mutedSilver,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  if (bio.isNotEmpty) ...[
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      'Bio: $bio',
+                                      style: const TextStyle(
+                                        color: AppColors.warmIvory,
+                                        fontSize: 12,
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 12),
+                                  Row(
+                                    children: [
+                                      if (!isPublished)
+                                        ElevatedButton.icon(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor:
+                                                AppColors.statusConfirmed,
+                                            foregroundColor:
+                                                AppColors.warmIvory,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 10,
+                                            ),
+                                          ),
+                                          icon: const Icon(
+                                            Icons.check_circle,
+                                            size: 16,
+                                          ),
+                                          label: const Text(
+                                            'Approve & Publish',
+                                          ),
+                                          onPressed: () =>
+                                              _moderatePhotographer(
+                                                photoId,
+                                                name,
+                                                'approve',
+                                              ),
+                                        ),
+                                      if (isPublished)
+                                        OutlinedButton.icon(
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor:
+                                                AppColors.statusCancelled,
+                                            side: const BorderSide(
+                                              color: AppColors.statusCancelled,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 16,
+                                              vertical: 10,
+                                            ),
+                                          ),
+                                          icon: const Icon(
+                                            Icons.block,
+                                            size: 16,
+                                          ),
+                                          label: const Text('Suspend'),
+                                          onPressed: () =>
+                                              _moderatePhotographer(
+                                                photoId,
+                                                name,
+                                                'suspend',
+                                              ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildBookingsTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _bookingsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const EditorialLoadingWidget(
+            label: 'Loading platform bookings...',
+          );
+        }
+        if (snapshot.hasError) {
+          return EditorialErrorWidget(
+            errorMessage: 'Failed to fetch bookings: ${snapshot.error}',
+            onRetry: _refreshAll,
+          );
+        }
+
+        final bookings = snapshot.data ?? [];
+
+        if (bookings.isEmpty) {
+          return const EmptyStateWidget(
+            icon: Icons.calendar_month,
+            title: 'No Platform Bookings',
+            message: 'There are currently no bookings recorded on PYP.',
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: bookings.length,
+          itemBuilder: (context, index) {
+            final b = bookings[index];
+            final photoName =
+                b['out_photographer_name'] ?? 'Photographer';
+            final custName = b['out_customer_name'] ?? 'Customer';
+            final eventType = b['out_event_type'] ?? 'Event';
+            final city = b['out_event_city'] ?? 'City';
+            final date = b['out_event_date'] ?? 'Date';
+            final status = (b['out_status'] ?? 'requested').toString();
+            final totalPaise = (b['out_total_amount_paise'] ?? 0) as int;
+            final totalINR = totalPaise / 100.0;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '$eventType • $city',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.champagneGold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Customer: $custName',
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.warmIvory,
+                            ),
+                          ),
+                          Text(
+                            'Photographer: $photoName',
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.mutedSilver,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Date: $date | Status: ${status.toUpperCase()}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppColors.warmIvoryDark,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Text(
+                      '₹${totalINR.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.champagneGold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildClientsTab() {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: _clientsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const EditorialLoadingWidget(
+            label: 'Loading registered clients...',
+          );
+        }
+        if (snapshot.hasError) {
+          return EditorialErrorWidget(
+            errorMessage: 'Failed to fetch clients: ${snapshot.error}',
+            onRetry: _refreshAll,
+          );
+        }
+
+        final clients = snapshot.data ?? [];
+
+        if (clients.isEmpty) {
+          return const EmptyStateWidget(
+            icon: Icons.people_outline,
+            title: 'No Clients Registered',
+            message: 'There are currently no registered clients on PYP.',
+          );
+        }
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: clients.length,
+          itemBuilder: (context, index) {
+            final c = clients[index];
+            final name = c['out_full_name'] ?? 'Customer';
+            final email = c['out_email'] ?? 'N/A';
+            final city = c['out_city'] ?? 'Not specified';
+            final bookingsCount = c['out_total_bookings'] ?? 0;
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: ListTile(
+                leading: const CircleAvatar(
+                  backgroundColor: AppColors.darkSurfaceVariant,
+                  child: Icon(Icons.person, color: AppColors.champagneGold),
+                ),
+                title: Text(
+                  name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.warmIvory,
+                  ),
+                ),
+                subtitle: Text(
+                  '$email • City: $city',
+                  style: const TextStyle(
+                    color: AppColors.mutedSilver,
+                    fontSize: 12,
+                  ),
+                ),
+                trailing: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.darkSurfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: AppColors.borderDark),
+                  ),
+                  child: Text(
+                    '$bookingsCount Bookings',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.champagneGold,
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
