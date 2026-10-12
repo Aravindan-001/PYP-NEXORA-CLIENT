@@ -36,9 +36,9 @@ select throws_like(
 
 -- TEST 2: Non-admin customer is denied approving photographers
 select throws_like(
-  'select public.admin_moderate_photographer(''aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa''::uuid, true)',
+  'select public.admin_manage_photographer_status(''aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa''::uuid, ''approve'')',
   '%Access denied: Admin role required%',
-  'Test 2: Non-admin customer cannot access admin_moderate_photographer'
+  'Test 2: Non-admin customer cannot access admin_manage_photographer_status'
 );
 
 -- TEST 3: Admin user can list pending photographers
@@ -52,9 +52,9 @@ select is(
 );
 
 -- TEST 4: Admin user can approve/publish pending photographer using ID from admin_get_pending_photographers
-select public.admin_moderate_photographer(
+select public.admin_manage_photographer_status(
   (select out_id from public.admin_get_pending_photographers() limit 1),
-  true
+  'approve'
 );
 
 reset role;
@@ -76,9 +76,9 @@ select is(
 );
 
 -- TEST 6: Admin user can unpublish / reject a photographer
-select public.admin_moderate_photographer(
+select public.admin_manage_photographer_status(
   (select id from public.photographer_profiles where user_id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
-  false
+  'reject'
 );
 
 reset role;

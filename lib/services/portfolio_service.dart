@@ -42,7 +42,33 @@ class PortfolioService {
     return mimeTypeMap[ext] ?? 'image/jpeg';
   }
 
-  /// Validates image bytes, file name, extension, and file size.
+  /// Checks whether raw bytes match valid magic byte signatures for JPEG, PNG, or WebP.
+  static bool hasValidMagicBytes(Uint8List bytes) {
+    if (bytes.length < 12) return false;
+
+    // JPEG: FF D8 FF
+    final isJpeg = bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
+
+    // PNG: 89 50 4E 47 (\x89PNG)
+    final isPng = bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47;
+
+    // WebP: RIFF (bytes 0..3) ... WEBP (bytes 8..11)
+    final isWebP = bytes[0] == 0x52 &&
+        bytes[1] == 0x49 &&
+        bytes[2] == 0x46 &&
+        bytes[3] == 0x46 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50;
+
+    return isJpeg || isPng || isWebP;
+  }
+
+  /// Validates image bytes, file name, extension, file size, and magic bytes.
   /// Throws [PortfolioValidationException] if validation fails.
   static void validateImage({
     required Uint8List bytes,
@@ -63,6 +89,12 @@ class PortfolioService {
       final sizeMB = (bytes.length / (1024 * 1024)).toStringAsFixed(1);
       throw PortfolioValidationException(
         'File size ($sizeMB MB) exceeds maximum allowed limit of 10MB.',
+      );
+    }
+
+    if (!hasValidMagicBytes(bytes)) {
+      throw const PortfolioValidationException(
+        'Invalid image content. File header signature does not match JPEG, PNG, or WebP image formats.',
       );
     }
   }

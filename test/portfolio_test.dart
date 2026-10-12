@@ -7,36 +7,75 @@ import 'package:pyp_app/widgets/portfolio_viewer_widget.dart';
 import 'package:pyp_app/widgets/image_preview_dialog.dart';
 
 void main() {
+  Uint8List makeJpegBytes([int length = 100]) {
+    final b = Uint8List(length);
+    b[0] = 0xFF; b[1] = 0xD8; b[2] = 0xFF; b[3] = 0xE0;
+    return b;
+  }
+
+  Uint8List makePngBytes([int length = 100]) {
+    final b = Uint8List(length);
+    b[0] = 0x89; b[1] = 0x50; b[2] = 0x4E; b[3] = 0x47;
+    return b;
+  }
+
+  Uint8List makeWebpBytes([int length = 100]) {
+    final b = Uint8List(length);
+    b[0] = 0x52; b[1] = 0x49; b[2] = 0x46; b[3] = 0x46;
+    b[8] = 0x57; b[9] = 0x45; b[10] = 0x42; b[11] = 0x50;
+    return b;
+  }
+
   group('PortfolioService Unit Tests', () {
     test('Image validation accepts valid JPEG, PNG, and WebP under 10MB', () {
-      final validBytes = Uint8List(1024 * 1024); // 1MB
+      final jpegBytes = makeJpegBytes(1024 * 1024);
+      final pngBytes = makePngBytes(1024 * 1024);
+      final webpBytes = makeWebpBytes(1024 * 1024);
+
       expect(
         () => PortfolioService.validateImage(
-          bytes: validBytes,
+          bytes: jpegBytes,
           fileName: 'sample.jpg',
         ),
         returnsNormally,
       );
       expect(
         () => PortfolioService.validateImage(
-          bytes: validBytes,
+          bytes: jpegBytes,
           fileName: 'sample.jpeg',
         ),
         returnsNormally,
       );
       expect(
         () => PortfolioService.validateImage(
-          bytes: validBytes,
+          bytes: pngBytes,
           fileName: 'sample.png',
         ),
         returnsNormally,
       );
       expect(
         () => PortfolioService.validateImage(
-          bytes: validBytes,
+          bytes: webpBytes,
           fileName: 'sample.webp',
         ),
         returnsNormally,
+      );
+    });
+
+    test('Image validation rejects spoofed files missing valid header magic bytes', () {
+      final invalidBytes = Uint8List(100); // filled with 0s
+      expect(
+        () => PortfolioService.validateImage(
+          bytes: invalidBytes,
+          fileName: 'fake.jpg',
+        ),
+        throwsA(
+          isA<PortfolioValidationException>().having(
+            (e) => e.message,
+            'message',
+            contains('Invalid image content'),
+          ),
+        ),
       );
     });
 

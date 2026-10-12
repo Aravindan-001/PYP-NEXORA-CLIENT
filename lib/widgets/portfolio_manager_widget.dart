@@ -149,11 +149,26 @@ class _PortfolioManagerWidgetState extends State<PortfolioManagerWidget> {
       }
 
       // 2. Persist updated URLs to photographer_profiles schema
-      final savedUrls = await _service.savePortfolioUrls(
-        client: client,
-        portfolioUrls: updatedList,
-        userId: userId,
-      );
+      List<String> savedUrls;
+      try {
+        savedUrls = await _service.savePortfolioUrls(
+          client: client,
+          portfolioUrls: updatedList,
+          userId: userId,
+        );
+      } catch (saveError) {
+        // Cleanup newly uploaded image from storage if DB persistence fails to prevent orphaned file
+        try {
+          await _service.deletePortfolioImage(
+            client: client,
+            url: newUrl,
+            userId: userId,
+          );
+        } catch (_) {
+          // Cleanup best-effort
+        }
+        rethrow;
+      }
 
       // 3. Clean up old image file from storage if replaced
       if (oldUrlToDelete != null) {
