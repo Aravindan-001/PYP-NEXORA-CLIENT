@@ -43,8 +43,11 @@ void main() {
         MaterialApp(theme: AppTheme.darkTheme, home: const AuthScreen()),
       );
 
-      // Initially shows sign-in mode
-      expect(find.text('Welcome Back'), findsOneWidget);
+      // Initially shows sign-in mode for Client Portal
+      expect(find.text('Client Sign In'), findsOneWidget);
+      expect(find.text('PORTAL TYPE'), findsOneWidget);
+      expect(find.text('Client Portal'), findsOneWidget);
+      expect(find.text('Photographer Portal'), findsOneWidget);
       expect(
         find.text("Don't have an account? Create Account"),
         findsOneWidget,
@@ -54,23 +57,24 @@ void main() {
       await tester.tap(find.text("Don't have an account? Create Account"));
       await tester.pumpAndSettle();
 
-      // Verify sign up fields and role choice chips appear
-      expect(find.text('Create PYP Account'), findsOneWidget);
-      expect(find.text('ACCOUNT TYPE'), findsOneWidget);
-      expect(find.text('Client / Customer'), findsOneWidget);
-      expect(find.text('Photographer'), findsOneWidget);
+      // Verify sign up fields and portal choice chips appear
+      expect(find.text('Create Client Account'), findsAtLeast(1));
+      expect(find.text('PORTAL TYPE'), findsOneWidget);
+      expect(find.text('Client Portal'), findsOneWidget);
+      expect(find.text('Photographer Portal'), findsOneWidget);
 
       // CRITICAL: Verify 'Admin' option is NOT available on public signup
       expect(find.text('Admin'), findsNothing);
       expect(find.text('Administrator'), findsNothing);
 
-      // Select Photographer role chip
-      await tester.tap(find.text('Photographer'));
+      // Select Photographer Portal chip
+      await tester.tap(find.text('Photographer Portal'));
       await tester.pumpAndSettle();
 
+      expect(find.text('Apply as Photographer'), findsOneWidget);
       expect(
         find.text(
-          'Photographer accounts submit a portfolio for admin review.',
+          'Register as a photographer and submit your portfolio for review.',
         ),
         findsOneWidget,
       );
@@ -96,10 +100,7 @@ void main() {
       'DiscoverScreen renders editorial marketplace header and filter chips',
       (WidgetTester tester) async {
         await tester.pumpWidget(
-          MaterialApp(
-            theme: AppTheme.darkTheme,
-            home: const DiscoverScreen(),
-          ),
+          MaterialApp(theme: AppTheme.darkTheme, home: const DiscoverScreen()),
         );
 
         expect(find.text('EDITORIAL MARKETPLACE'), findsOneWidget);

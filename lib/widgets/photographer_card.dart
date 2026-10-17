@@ -3,7 +3,8 @@ import '../theme/app_theme.dart';
 import 'portfolio_viewer_widget.dart';
 
 /// Editorial Photographer Card for Discover Screen displaying portfolio imagery,
-/// category, city, bio, starting price in INR, and booking CTA.
+/// category, city, experience, specializations, service locations, availability,
+/// starting price in INR, and booking CTA.
 class PhotographerCard extends StatelessWidget {
   final Map<String, dynamic> photographer;
   final VoidCallback onBookPressed;
@@ -22,6 +23,14 @@ class PhotographerCard extends StatelessWidget {
     final bio = photographer['bio'] ?? '';
     final pricePaise = (photographer['starting_price_paise'] as int?) ?? 100000;
     final priceINR = pricePaise / 100.0;
+    final experienceYears = (photographer['experience_years'] as int?) ?? 0;
+    final specializations = List<String>.from(
+      photographer['specializations'] ?? [],
+    );
+    final serviceLocations = List<String>.from(
+      photographer['service_locations'] ?? [],
+    );
+    final availabilityNote = photographer['availability_note']?.toString();
     final portfolioUrls = List<String>.from(
       photographer['portfolio_urls'] ?? [],
     );
@@ -54,13 +63,48 @@ class PhotographerCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.warmIvory,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              displayName,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.warmIvory,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (experienceYears > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.champagneGold.withValues(
+                                  alpha: 0.15,
+                                ),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: AppColors.champagneGold.withValues(
+                                    alpha: 0.4,
+                                  ),
+                                ),
+                              ),
+                              child: Text(
+                                '${experienceYears}Y EXP',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppColors.champagneGold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
                       ),
                       const SizedBox(height: 2),
                       Row(
@@ -71,12 +115,15 @@ class PhotographerCard extends StatelessWidget {
                             color: AppColors.champagneGold,
                           ),
                           const SizedBox(width: 4),
-                          Text(
-                            '$category • $city',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppColors.mutedSilver,
-                              fontWeight: FontWeight.w500,
+                          Expanded(
+                            child: Text(
+                              '$category • $city',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppColors.mutedSilver,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                         ],
@@ -84,6 +131,7 @@ class PhotographerCard extends StatelessWidget {
                     ],
                   ),
                 ),
+                const SizedBox(width: 8),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
@@ -111,7 +159,7 @@ class PhotographerCard extends StatelessWidget {
             ),
 
             if (bio.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
               Text(
                 bio,
                 maxLines: 2,
@@ -120,6 +168,97 @@ class PhotographerCard extends StatelessWidget {
                   fontSize: 13,
                   color: AppColors.warmIvory,
                   height: 1.3,
+                ),
+              ),
+            ],
+
+            // Specialization tags
+            if (specializations.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: specializations.map((spec) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.darkSurfaceVariant,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: AppColors.borderDark),
+                    ),
+                    child: Text(
+                      spec,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.warmIvory,
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+            ],
+
+            // Service Locations
+            if (serviceLocations.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  const Icon(Icons.map, size: 12, color: AppColors.mutedSilver),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Serves: ${serviceLocations.join(', ')}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppColors.mutedSilver,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+
+            // Availability Note Banner
+            if (availabilityNote != null && availabilityNote.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: AppColors.statusAccepted.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.statusAccepted.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.event_available,
+                      size: 14,
+                      color: AppColors.statusAccepted,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Availability: $availabilityNote',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: AppColors.warmIvory,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

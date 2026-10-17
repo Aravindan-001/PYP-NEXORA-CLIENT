@@ -142,8 +142,9 @@ serve(async (req) => {
           p_provider_order_id: paymentEntity.order_id,
           p_provider_payment_id: paymentEntity.id,
           p_amount_paise: paymentEntity.amount,
+          p_provider: "razorpay",
         },
-        { schema: "private" }
+        { schema: "public" }
       );
 
       if (rpcError) {
@@ -177,7 +178,7 @@ serve(async (req) => {
             p_provider_payment_id: providerPaymentId,
             p_refund_amount_paise: refundAmount,
           },
-          { schema: "private" }
+          { schema: "public" }
         );
 
         if (refundError) {

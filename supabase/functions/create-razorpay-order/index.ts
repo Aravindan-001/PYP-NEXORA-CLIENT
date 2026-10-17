@@ -88,6 +88,13 @@ serve(async (req) => {
     const totalAmountPaise = prepResult.out_total_amount_paise;
     const existingOrderId = prepResult.out_existing_provider_order_id;
 
+    if (!totalAmountPaise || typeof totalAmountPaise !== "number" || totalAmountPaise <= 0 || !Number.isInteger(totalAmountPaise)) {
+      return new Response(JSON.stringify({ error: "Invalid booking amount calculated by server" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Reuse existing valid pending order if present
     if (existingOrderId) {
       return new Response(

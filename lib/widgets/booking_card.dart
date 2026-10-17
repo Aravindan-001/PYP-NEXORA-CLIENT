@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import 'invoice_dialog.dart';
 
 /// Editorial Booking Card displaying event details, status badge, fees, and action buttons.
 class BookingCard extends StatelessWidget {
@@ -11,6 +12,7 @@ class BookingCard extends StatelessWidget {
   final Function(String) onViewContactInfo;
   final Function(String, bool) onPhotographerRespond;
   final Function(String) onCustomerCancel;
+  final Function(Map<String, dynamic>)? onOpenChat;
 
   const BookingCard({
     super.key,
@@ -21,15 +23,18 @@ class BookingCard extends StatelessWidget {
     required this.onViewContactInfo,
     required this.onPhotographerRespond,
     required this.onCustomerCancel,
+    this.onOpenChat,
   });
 
   Color _getStatusBadgeColor(String status) {
     switch (status) {
       case 'requested':
+      case 'pending':
         return AppColors.statusRequested;
       case 'accepted':
         return AppColors.statusAccepted;
       case 'awaiting_payment':
+      case 'payment_pending':
         return AppColors.statusAwaitingPayment;
       case 'confirmed':
         return AppColors.statusConfirmed;
@@ -38,6 +43,7 @@ class BookingCard extends StatelessWidget {
       case 'cancelled':
         return AppColors.statusCancelled;
       case 'rejected':
+      case 'declined':
         return AppColors.statusRejected;
       default:
         return AppColors.mutedSilver;
@@ -46,8 +52,15 @@ class BookingCard extends StatelessWidget {
 
   String _formatStatusText(String status) {
     switch (status) {
+      case 'requested':
+      case 'pending':
+        return 'REQUESTED';
       case 'awaiting_payment':
-        return 'AWAITING PAYMENT';
+      case 'payment_pending':
+        return 'PAYMENT PENDING';
+      case 'rejected':
+      case 'declined':
+        return 'DECLINED';
       default:
         return status.toUpperCase();
     }
@@ -63,6 +76,8 @@ class BookingCard extends StatelessWidget {
     final photographerInfo =
         booking['photographer_profiles'] as Map<String, dynamic>?;
     final photoName = photographerInfo?['display_name'] ?? 'Photographer';
+    final custName = booking['customer_name'] ?? 'Client';
+    final custPhone = booking['customer_phone'];
     final eventType = booking['event_type'] ?? 'Event';
     final eventCity = booking['event_city'] ?? 'City';
     final eventDate = booking['event_date'] ?? 'Date';
@@ -97,13 +112,27 @@ class BookingCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Session with $photoName',
+                        isCustomer
+                            ? 'Session with $photoName'
+                            : 'Request from $custName',
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
                           color: AppColors.warmIvory,
                         ),
                       ),
+                      if (!isCustomer &&
+                          custPhone != null &&
+                          custPhone.toString().isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Client Phone: $custPhone',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppColors.mutedSilver,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -202,7 +231,7 @@ class BookingCard extends StatelessWidget {
             if (customerNote != null && customerNote.toString().isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
-                'Note: $customerNote',
+                'Requirements: $customerNote',
                 style: const TextStyle(
                   fontSize: 12,
                   color: AppColors.mutedSilver,
@@ -218,39 +247,74 @@ class BookingCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
-                // Customer Actions
+                // Payment Action (for customer when accepted)
                 if (isCustomer &&
-                    (status == 'accepted' || status == 'awaiting_payment'))
+                    (status == 'accepted' ||
+                        status == 'awaiting_payment' ||
+                        status == 'payment_pending'))
                   ElevatedButton.icon(
                     icon: const Icon(Icons.payment, size: 16),
                     label: const Text('Pay Deposit'),
                     onPressed: () => onPayDeposit(booking),
                   ),
-                if (isCustomer &&
-                    (status == 'requested' ||
-                        status == 'accepted' ||
-                        status == 'awaiting_payment'))
-                  OutlinedButton.icon(
-                    icon: const Icon(Icons.close, size: 16),
-                    label: const Text('Cancel Request'),
-                    onPressed: () => onCustomerCancel(booking['id']),
-                  ),
-                if (status == 'confirmed' || status == 'completed')
+
+                // Chat Action (unlocked ONLY when confirmed or completed)
+                if ((status == 'confirmed' || status == 'completed') &&
+                    onOpenChat != null)
                   ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.champagneGold,
+                      foregroundColor: AppColors.obsidian,
+                    ),
+                    icon: const Icon(Icons.chat, size: 16),
+                    label: const Text('Open Chat'),
+                    onPressed: () => onOpenChat!(booking),
+                  ),
+
+                // Contact Info
+                if (status == 'confirmed' || status == 'completed')
+                  OutlinedButton.icon(
                     icon: const Icon(Icons.contact_phone, size: 16),
                     label: const Text('View Contact Info'),
                     onPressed: () => onViewContactInfo(booking['id']),
                   ),
 
-                // Photographer Actions
-                if (!isCustomer && status == 'requested') ...[
+                // Invoice / Receipt Action
+                OutlinedButton.icon(
+                  key: Key('view_invoice_button_${booking['id']}'),
+                  icon: const Icon(Icons.receipt_long, size: 16),
+                  label: Text(
+                    status == 'confirmed' || status == 'completed'
+                        ? 'View Receipt'
+                        : 'View Invoice',
+                  ),
+                  onPressed: () =>
+                      InvoiceDialog.show(context, booking: booking),
+                ),
+
+                // Cancellation Action
+                if (isCustomer &&
+                    (status == 'requested' ||
+                        status == 'pending' ||
+                        status == 'accepted' ||
+                        status == 'awaiting_payment' ||
+                        status == 'payment_pending'))
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('Cancel Request'),
+                    onPressed: () => onCustomerCancel(booking['id']),
+                  ),
+
+                // Photographer Response Actions
+                if (!isCustomer &&
+                    (status == 'requested' || status == 'pending')) ...[
                   ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.statusConfirmed,
                       foregroundColor: AppColors.warmIvory,
                     ),
                     icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Accept Booking'),
+                    label: const Text('Accept Request'),
                     onPressed: () => onPhotographerRespond(booking['id'], true),
                   ),
                   OutlinedButton.icon(
@@ -259,7 +323,7 @@ class BookingCard extends StatelessWidget {
                       side: const BorderSide(color: AppColors.statusCancelled),
                     ),
                     icon: const Icon(Icons.close, size: 16),
-                    label: const Text('Reject Booking'),
+                    label: const Text('Decline Request'),
                     onPressed: () =>
                         onPhotographerRespond(booking['id'], false),
                   ),

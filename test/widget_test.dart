@@ -33,7 +33,8 @@ void main() {
   testWidgets('PYPApp initializes correctly', (WidgetTester tester) async {
     await tester.pumpWidget(const PYPApp());
     await tester.pumpAndSettle();
-    expect(find.text('Welcome Back'), findsOneWidget);
+    expect(find.text('Client Sign In'), findsOneWidget);
+    expect(find.text('PORTAL TYPE'), findsOneWidget);
     expect(find.text('PICK YOUR PHOTOGRAPHER'), findsOneWidget);
   });
 }

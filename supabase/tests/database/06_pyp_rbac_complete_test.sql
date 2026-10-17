@@ -3,9 +3,9 @@ begin;
 select plan(12);
 
 -- Seed base auth users
-insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000001', 'admin_rbac@test.com');
-insert into auth.users (id, email, raw_user_meta_data) values ('10000000-0000-0000-0000-000000000002', 'client_rbac@test.com', '{"full_name": "Client Test", "requested_role": "customer"}'::jsonb);
-insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000003', 'photo_rbac@test.com');
+insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000001', 'admin_rbac@test.com') on conflict do nothing;
+insert into auth.users (id, email, raw_user_meta_data) values ('10000000-0000-0000-0000-000000000002', 'client_rbac@test.com', '{"full_name": "Client Test", "requested_role": "customer"}'::jsonb) on conflict do nothing;
+insert into auth.users (id, email) values ('10000000-0000-0000-0000-000000000003', 'photo_rbac@test.com') on conflict do nothing;
 
 -- TEST 1: Provision Admin safely using private.provision_admin
 reset role;
@@ -30,7 +30,8 @@ select is(
 
 -- TEST 3: Attempt to self-assign admin via requested_role metadata strictly fails/ignores admin
 insert into auth.users (id, email, raw_user_meta_data)
-values ('10000000-0000-0000-0000-000000000004', 'hacker@test.com', '{"full_name": "Hacker", "requested_role": "admin"}'::jsonb);
+values ('10000000-0000-0000-0000-000000000004', 'hacker@test.com', '{"full_name": "Hacker", "requested_role": "admin"}'::jsonb)
+on conflict do nothing;
 
 select is(
   (select count(*)::integer from public.user_roles where user_id = '10000000-0000-0000-0000-000000000004' and role = 'admin'),
@@ -94,7 +95,7 @@ select is(
 
 -- TEST 9: Admin can list all photographers including pending ones
 select is(
-  (select count(*)::integer from public.admin_get_all_photographers()),
+  (select count(*)::integer from public.admin_get_all_photographers() where out_user_id = '10000000-0000-0000-0000-000000000003'),
   1,
   'Test 9: Admin retrieves pending photographer in all-photographers list'
 );

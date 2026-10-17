@@ -69,3 +69,8 @@ Thumbs.db
 .agents/
 
 supabase/.branches/
+
+# Local backups and investigation artifacts
+*.bak
+*.pre-*-fix.bak
+remote_payment_function_inspection.json

@@ -168,7 +168,8 @@ serve(async (req) => {
       p_provider_order_id: razorpay_order_id,
       p_provider_payment_id: razorpay_payment_id,
       p_amount_paise: booking.total_amount_paise,
-    }, { schema: "private" });
+      p_provider: "razorpay",
+    }, { schema: "public" });
 
     if (rpcError) {
       return new Response(JSON.stringify({ error: "Failed to record payment in database: " + rpcError.message }), {

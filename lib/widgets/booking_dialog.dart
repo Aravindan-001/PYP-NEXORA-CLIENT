@@ -3,7 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 
 /// Responsive, polished booking modal dialog for selecting dates, event city,
-/// event type, and submitting booking requests.
+/// event type, client details, and submitting booking requests.
 class BookingDialog extends StatefulWidget {
   final Map<String, dynamic> photographer;
   final SupabaseClient? supabaseClient;
@@ -33,6 +33,8 @@ class BookingDialog extends StatefulWidget {
 }
 
 class _BookingDialogState extends State<BookingDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _phoneController;
   late final TextEditingController _cityController;
   late final TextEditingController _typeController;
   late final TextEditingController _noteController;
@@ -42,6 +44,8 @@ class _BookingDialogState extends State<BookingDialog> {
   @override
   void initState() {
     super.initState();
+    _nameController = TextEditingController();
+    _phoneController = TextEditingController();
     _cityController = TextEditingController(
       text: widget.photographer['city'] ?? '',
     );
@@ -50,10 +54,31 @@ class _BookingDialogState extends State<BookingDialog> {
     );
     _noteController = TextEditingController();
     _selectedDate = DateTime.now().add(const Duration(days: 7));
+    _prefillClientDetails();
+  }
+
+  Future<void> _prefillClientDetails() async {
+    final userId = _supabase.auth.currentUser?.id;
+    if (userId != null) {
+      try {
+        final profile = await _supabase
+            .from('profiles')
+            .select()
+            .eq('id', userId)
+            .maybeSingle();
+        if (profile != null && mounted) {
+          if ((profile['full_name'] ?? '').isNotEmpty) {
+            _nameController.text = profile['full_name'];
+          }
+        }
+      } catch (_) {}
+    }
   }
 
   @override
   void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
     _cityController.dispose();
     _typeController.dispose();
     _noteController.dispose();
@@ -64,14 +89,19 @@ class _BookingDialogState extends State<BookingDialog> {
       widget.supabaseClient ?? Supabase.instance.client;
 
   Future<void> _submitBooking() async {
+    final name = _nameController.text.trim();
+    final phone = _phoneController.text.trim();
     final city = _cityController.text.trim();
     final type = _typeController.text.trim();
     final note = _noteController.text.trim();
 
-    if (city.isEmpty || type.isEmpty) {
+    if (name.isEmpty || phone.isEmpty || city.isEmpty || type.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Event City and Event Type are required.'),
+          content: Text(
+            'Your Name, Phone Number, Event City, and Event Type are required.',
+          ),
+          backgroundColor: AppColors.statusCancelled,
         ),
       );
       return;
@@ -91,6 +121,8 @@ class _BookingDialogState extends State<BookingDialog> {
           'p_event_city': city,
           'p_event_type': type,
           'p_customer_note': note.isNotEmpty ? note : null,
+          'p_customer_name': name,
+          'p_customer_phone': phone,
         },
       );
 
@@ -108,9 +140,12 @@ class _BookingDialogState extends State<BookingDialog> {
     } catch (e) {
       if (mounted) {
         setState(() => _isSubmitting = false);
+        final cleanMsg = e.toString().contains('Exception:')
+            ? e.toString().split('Exception:').last.trim()
+            : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Booking failed: $e'),
+            content: Text('Booking failed: $cleanMsg'),
             backgroundColor: AppColors.statusCancelled,
           ),
         );
@@ -186,7 +221,52 @@ class _BookingDialogState extends State<BookingDialog> {
               ),
               const SizedBox(height: 20),
 
-              // Form fields
+              const Text(
+                'YOUR CONTACT DETAILS',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.champagneGold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Your Full Name',
+                  prefixIcon: Icon(
+                    Icons.person_outline,
+                    color: AppColors.mutedSilver,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _phoneController,
+                decoration: const InputDecoration(
+                  labelText: 'Your Phone Number',
+                  prefixIcon: Icon(
+                    Icons.phone_outlined,
+                    color: AppColors.mutedSilver,
+                  ),
+                ),
+                keyboardType: TextInputType.phone,
+              ),
+              const SizedBox(height: 16),
+
+              const Text(
+                'EVENT DETAILS',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.champagneGold,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: 8),
+
               TextField(
                 controller: _cityController,
                 decoration: const InputDecoration(
@@ -201,7 +281,7 @@ class _BookingDialogState extends State<BookingDialog> {
               TextField(
                 controller: _typeController,
                 decoration: const InputDecoration(
-                  labelText: 'Event Type (e.g. Wedding, Portrait)',
+                  labelText: 'Event Type (e.g. Wedding, Portrait, Commercial)',
                   prefixIcon: Icon(
                     Icons.category,
                     color: AppColors.mutedSilver,
@@ -212,7 +292,7 @@ class _BookingDialogState extends State<BookingDialog> {
               TextField(
                 controller: _noteController,
                 decoration: const InputDecoration(
-                  labelText: 'Special Requests / Notes (Optional)',
+                  labelText: 'Booking Requirements & Special Notes (Optional)',
                   prefixIcon: Icon(Icons.notes, color: AppColors.mutedSilver),
                 ),
                 maxLines: 2,
@@ -360,12 +440,14 @@ class _BookingDialogState extends State<BookingDialog> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text(
-                          'Estimated Deposit Total',
-                          style: TextStyle(
-                            color: AppColors.warmIvory,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14,
+                        const Expanded(
+                          child: Text(
+                            'Estimated Deposit Total',
+                            style: TextStyle(
+                              color: AppColors.warmIvory,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
                           ),
                         ),
                         Text(

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "328087007148",
+    "project_id": "pyp---pick-your-photographer",
+    "storage_bucket": "pyp---pick-your-photographer.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:328087007148:android:99e6c7429132f7ab8e5409",
+        "android_client_info": {
+          "package_name": "com.example.pyp_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD0D9kRY4OWYITFw75Vx0gkgO9-AWoDtUk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

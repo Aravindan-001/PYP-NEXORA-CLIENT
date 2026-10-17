@@ -9,20 +9,32 @@ import 'package:pyp_app/widgets/image_preview_dialog.dart';
 void main() {
   Uint8List makeJpegBytes([int length = 100]) {
     final b = Uint8List(length);
-    b[0] = 0xFF; b[1] = 0xD8; b[2] = 0xFF; b[3] = 0xE0;
+    b[0] = 0xFF;
+    b[1] = 0xD8;
+    b[2] = 0xFF;
+    b[3] = 0xE0;
     return b;
   }
 
   Uint8List makePngBytes([int length = 100]) {
     final b = Uint8List(length);
-    b[0] = 0x89; b[1] = 0x50; b[2] = 0x4E; b[3] = 0x47;
+    b[0] = 0x89;
+    b[1] = 0x50;
+    b[2] = 0x4E;
+    b[3] = 0x47;
     return b;
   }
 
   Uint8List makeWebpBytes([int length = 100]) {
     final b = Uint8List(length);
-    b[0] = 0x52; b[1] = 0x49; b[2] = 0x46; b[3] = 0x46;
-    b[8] = 0x57; b[9] = 0x45; b[10] = 0x42; b[11] = 0x50;
+    b[0] = 0x52;
+    b[1] = 0x49;
+    b[2] = 0x46;
+    b[3] = 0x46;
+    b[8] = 0x57;
+    b[9] = 0x45;
+    b[10] = 0x42;
+    b[11] = 0x50;
     return b;
   }
 
@@ -62,22 +74,25 @@ void main() {
       );
     });
 
-    test('Image validation rejects spoofed files missing valid header magic bytes', () {
-      final invalidBytes = Uint8List(100); // filled with 0s
-      expect(
-        () => PortfolioService.validateImage(
-          bytes: invalidBytes,
-          fileName: 'fake.jpg',
-        ),
-        throwsA(
-          isA<PortfolioValidationException>().having(
-            (e) => e.message,
-            'message',
-            contains('Invalid image content'),
+    test(
+      'Image validation rejects spoofed files missing valid header magic bytes',
+      () {
+        final invalidBytes = Uint8List(100); // filled with 0s
+        expect(
+          () => PortfolioService.validateImage(
+            bytes: invalidBytes,
+            fileName: 'fake.jpg',
           ),
-        ),
-      );
-    });
+          throwsA(
+            isA<PortfolioValidationException>().having(
+              (e) => e.message,
+              'message',
+              contains('Invalid image content'),
+            ),
+          ),
+        );
+      },
+    );
 
     test('Image validation rejects disallowed extensions', () {
       final bytes = Uint8List(512);

@@ -50,13 +50,15 @@ class PortfolioService {
     final isJpeg = bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
 
     // PNG: 89 50 4E 47 (\x89PNG)
-    final isPng = bytes[0] == 0x89 &&
+    final isPng =
+        bytes[0] == 0x89 &&
         bytes[1] == 0x50 &&
         bytes[2] == 0x4E &&
         bytes[3] == 0x47;
 
     // WebP: RIFF (bytes 0..3) ... WEBP (bytes 8..11)
-    final isWebP = bytes[0] == 0x52 &&
+    final isWebP =
+        bytes[0] == 0x52 &&
         bytes[1] == 0x49 &&
         bytes[2] == 0x46 &&
         bytes[3] == 0x46 &&

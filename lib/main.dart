@@ -1,22 +1,71 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart'
+    show
+        kIsWeb,
+        defaultTargetPlatform,
+        TargetPlatform,
+        PlatformDispatcher,
+        kDebugMode;
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:razorpay_flutter/razorpay_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'firebase_options.dart';
 import 'theme/app_theme.dart';
 import 'widgets/booking_card.dart';
+import 'widgets/booking_chat_screen.dart';
 import 'widgets/booking_dialog.dart';
 import 'widgets/empty_state_widget.dart';
 import 'widgets/photographer_card.dart';
 import 'widgets/portfolio_manager_widget.dart';
+import 'widgets/pyp_header.dart';
 
 // Safe Local Supabase Configuration
-const String supabaseUrl = 'http://127.0.0.1:54321';
-const String supabaseAnonKey =
-    'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+const String rawSupabaseUrl = String.fromEnvironment(
+  'SUPABASE_URL',
+  defaultValue: 'http://127.0.0.1:54321',
+);
+const String supabaseAnonKey = String.fromEnvironment(
+  'SUPABASE_ANON_KEY',
+  defaultValue: 'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH',
+);
+
+/// Dynamically resolves the Supabase URL:
+/// Replaces 127.0.0.1 or localhost with 10.0.2.2 when running on Android emulator.
+String get supabaseUrl {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+    if (rawSupabaseUrl.contains('127.0.0.1')) {
+      return rawSupabaseUrl.replaceAll('127.0.0.1', '10.0.2.2');
+    }
+    if (rawSupabaseUrl.contains('localhost')) {
+      return rawSupabaseUrl.replaceAll('localhost', '10.0.2.2');
+    }
+  }
+  return rawSupabaseUrl;
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase Core
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Pass Flutter framework errors to Crashlytics
+  FlutterError.onError = (errorDetails) {
+    FirebaseCrashlytics.instance.recordFlutterFatalError(errorDetails);
+  };
+
+  // Pass uncaught asynchronous errors to Crashlytics
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+    return true;
+  };
+
+  // Initialize Supabase
   await Supabase.initialize(url: supabaseUrl, publishableKey: supabaseAnonKey);
+
   runApp(const PYPApp());
 }
 
@@ -37,11 +86,51 @@ class PYPApp extends StatelessWidget {
 }
 
 /// Authentication State Router
-class AuthGate extends StatelessWidget {
+class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
 
   @override
+  State<AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<AuthGate> {
+  bool _isResettingPassword = false;
+  StreamSubscription<AuthState>? _authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _authSubscription = supabase.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.passwordRecovery) {
+        if (mounted) {
+          setState(() {
+            _isResettingPassword = true;
+          });
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isResettingPassword) {
+      return ResetPasswordScreen(
+        onPasswordResetComplete: () {
+          if (mounted) {
+            setState(() {
+              _isResettingPassword = false;
+            });
+          }
+        },
+      );
+    }
+
     return StreamBuilder<AuthState>(
       stream: supabase.auth.onAuthStateChange,
       builder: (context, snapshot) {
@@ -72,8 +161,11 @@ class _AuthScreenState extends State<AuthScreen> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
-  // Selected signup role: 'customer' or 'photographer' (Admin role strictly disallowed)
-  String _selectedSignUpRole = 'customer';
+  // Selected portal & role: 'customer' or 'photographer' (Admin role strictly disallowed)
+  String _selectedRolePortal = 'customer';
+
+  bool _isResendingConfirmation = false;
+  DateTime? _lastResendAt;
 
   @override
   void dispose() {
@@ -83,7 +175,224 @@ class _AuthScreenState extends State<AuthScreen> {
     super.dispose();
   }
 
+  String _getFriendlyErrorMessage(dynamic error) {
+    if (error == null) return 'Authentication failed. Please try again.';
+    final errorStr = error.toString();
+    final lowerErrorStr = errorStr.toLowerCase();
+
+    if (lowerErrorStr.contains('socketexception') ||
+        lowerErrorStr.contains('connection refused') ||
+        lowerErrorStr.contains('failed host lookup') ||
+        lowerErrorStr.contains('clientexception') ||
+        lowerErrorStr.contains('httpexception') ||
+        lowerErrorStr.contains('network') ||
+        lowerErrorStr.contains('127.0.0.1') ||
+        lowerErrorStr.contains('10.0.2.2') ||
+        lowerErrorStr.contains('port = 54321')) {
+      return 'Unable to connect to the authentication server. Please check your network connection or local Supabase server.';
+    }
+
+    if (error is AuthException) {
+      final statusCode = error.statusCode;
+      final code = error.code?.toLowerCase() ?? '';
+      final msg = error.message;
+      final lowerMsg = msg.toLowerCase();
+
+      if (statusCode == '429' ||
+          code.contains('rate_limit') ||
+          code.contains('429') ||
+          code.contains('over_email_send_rate_limit') ||
+          lowerMsg.contains('rate limit') ||
+          lowerMsg.contains('rate_limit') ||
+          lowerMsg.contains('429') ||
+          lowerMsg.contains('over_email_send_rate_limit')) {
+        return 'Email or sign-up rate limit reached. Please wait a few minutes before trying again or requesting another confirmation email.';
+      }
+
+      if (code.contains('one_time_token_not_found') ||
+          code.contains('otp_expired') ||
+          code.contains('invalid_grant') ||
+          lowerMsg.contains('one-time token not found') ||
+          lowerMsg.contains('token has expired') ||
+          lowerMsg.contains('otp_expired')) {
+        return 'This verification link is invalid, expired, or has already been used. Please sign in or request a new link.';
+      }
+
+      if (lowerMsg.contains('invalid login credentials') ||
+          lowerMsg.contains('invalid_credentials') ||
+          lowerMsg.contains('invalid grant')) {
+        return 'Invalid email or password. Please check your credentials and try again.';
+      }
+      if (lowerMsg.contains('email not confirmed') ||
+          lowerMsg.contains('email_not_confirmed')) {
+        return 'Your email address has not been confirmed yet. Please check your inbox or click "Resend Confirmation?".';
+      }
+      if (lowerMsg.contains('user already registered') ||
+          lowerMsg.contains('already exists')) {
+        return 'An account with this email address already exists. Please sign in instead.';
+      }
+      if (lowerMsg.contains('password should be at least') ||
+          lowerMsg.contains('password must be')) {
+        return 'Password must be at least 6 characters long.';
+      }
+      return msg;
+    }
+
+    if (lowerErrorStr.contains('rate limit') ||
+        lowerErrorStr.contains('rate_limit') ||
+        lowerErrorStr.contains('429')) {
+      return 'Email or sign-up rate limit reached. Please wait a few minutes before trying again or requesting another confirmation email.';
+    }
+
+    if (lowerErrorStr.contains('one-time token not found') ||
+        lowerErrorStr.contains('token has expired') ||
+        lowerErrorStr.contains('otp_expired')) {
+      return 'This verification link is invalid, expired, or has already been used. Please sign in or request a new link.';
+    }
+
+    return 'Authentication failed. Please try again.';
+  }
+
+  Future<void> _handleResendConfirmation() async {
+    if (_isLoading || _isResendingConfirmation) return;
+    final email = _emailController.text.trim();
+
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please enter your email address to resend confirmation email.',
+          ),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email address.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    if (_lastResendAt != null) {
+      final elapsed = DateTime.now().difference(_lastResendAt!).inSeconds;
+      if (elapsed < 60) {
+        final remaining = 60 - elapsed;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please wait $remaining seconds before requesting another confirmation email.',
+            ),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+        return;
+      }
+    }
+
+    setState(() => _isResendingConfirmation = true);
+
+    try {
+      const redirectUrl = kIsWeb ? null : 'io.supabase.pyp://reset-password';
+
+      await supabase.auth.resend(
+        type: OtpType.signup,
+        email: email,
+        emailRedirectTo: redirectUrl,
+      );
+
+      _lastResendAt = DateTime.now();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Confirmation email sent! Please check your inbox for the link.',
+            ),
+            backgroundColor: AppColors.statusConfirmed,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_getFriendlyErrorMessage(e)),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isResendingConfirmation = false);
+    }
+  }
+
+  Future<void> _handleForgotPassword() async {
+    if (_isLoading) return;
+    final email = _emailController.text.trim();
+
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please enter your email address to reset your password.',
+          ),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!emailRegex.hasMatch(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email address.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      const redirectUrl = kIsWeb ? null : 'io.supabase.pyp://reset-password';
+
+      await supabase.auth.resetPasswordForEmail(email, redirectTo: redirectUrl);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Password reset email sent! Please check your inbox for instructions.',
+            ),
+            backgroundColor: AppColors.statusConfirmed,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_getFriendlyErrorMessage(e)),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _submit() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
@@ -112,20 +421,30 @@ class _AuthScreenState extends State<AuthScreen> {
 
     try {
       if (_isSignUp) {
-        // Enforce safe role selection (admin is strictly forbidden via client signup)
-        final safeRole =
-            _selectedSignUpRole == 'photographer' ? 'photographer' : 'customer';
+        final safeRole = _selectedRolePortal == 'photographer'
+            ? 'photographer'
+            : 'customer';
 
-        await supabase.auth.signUp(
+        final res = await supabase.auth.signUp(
           email: email,
           password: password,
           data: {'full_name': name, 'requested_role': safeRole},
         );
 
         if (mounted) {
-          final message = safeRole == 'photographer'
-              ? 'Photographer account registered! Application pending admin approval.'
-              : 'Account created! Please sign in with your credentials.';
+          final isConfirmed =
+              res.session != null || res.user?.emailConfirmedAt != null;
+
+          final String message;
+          if (safeRole == 'photographer') {
+            message = isConfirmed
+                ? 'Photographer account registered! Application pending admin approval.'
+                : 'Photographer registration submitted! Please check your email to confirm your account before signing in.';
+          } else {
+            message = isConfirmed
+                ? 'Account created! Please sign in with your credentials.'
+                : 'Account created! Please check your email to confirm your account before signing in.';
+          }
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -141,20 +460,11 @@ class _AuthScreenState extends State<AuthScreen> {
           password: password,
         );
       }
-    } on AuthException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: AppColors.statusCancelled,
-          ),
-        );
-      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Authentication error: $e'),
+            content: Text(_getFriendlyErrorMessage(e)),
             backgroundColor: AppColors.statusCancelled,
           ),
         );
@@ -166,6 +476,30 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isPhotographerPortal = _selectedRolePortal == 'photographer';
+
+    final String cardTitle = _isSignUp
+        ? (isPhotographerPortal
+              ? 'Apply as Photographer'
+              : 'Create Client Account')
+        : (isPhotographerPortal ? 'Photographer Sign In' : 'Client Sign In');
+
+    final String cardSubtitle = _isSignUp
+        ? (isPhotographerPortal
+              ? 'Register as a photographer and submit your portfolio for review.'
+              : 'Create a client account to discover, search, and book photographers.')
+        : (isPhotographerPortal
+              ? 'Sign in as a photographer to manage requests, profile, and bookings.'
+              : 'Sign in as a client to discover photographers and manage your bookings.');
+
+    final String submitButtonText = _isSignUp
+        ? (isPhotographerPortal
+              ? 'Create Photographer Account'
+              : 'Create Client Account')
+        : (isPhotographerPortal
+              ? 'Sign In as Photographer'
+              : 'Sign In as Client');
+
     return Scaffold(
       body: SafeArea(
         child: Center(
@@ -179,27 +513,22 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Brand Logo Header
+                  // Brand Logo Header (BoxFit.contain to preserve 1:1 original logo artwork)
                   ClipRRect(
                     borderRadius: BorderRadius.circular(20),
-                    child: Image.asset(
-                      'assets/images/pyp_logo.jpeg',
+                    child: Container(
                       width: 90,
                       height: 90,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(
-                        width: 90,
-                        height: 90,
-                        decoration: BoxDecoration(
-                          color: AppColors.darkSurfaceVariant,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppColors.borderDark),
-                        ),
-                        child: const Icon(
-                          Icons.camera_alt,
-                          size: 44,
-                          color: AppColors.champagneGold,
-                        ),
+                      color: AppColors.darkSurfaceVariant,
+                      child: Image.asset(
+                        'assets/images/pyp_logo.jpeg',
+                        fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) =>
+                            const Icon(
+                              Icons.camera_alt,
+                              size: 44,
+                              color: AppColors.champagneGold,
+                            ),
                       ),
                     ),
                   ),
@@ -232,8 +561,57 @@ class _AuthScreenState extends State<AuthScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Dedicated Portal Selector (Client vs Photographer Entry)
+                          const Text(
+                            'PORTAL TYPE',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.champagneGold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: ChoiceChip(
+                                  label: const Center(
+                                    child: Text('Client Portal'),
+                                  ),
+                                  selected: _selectedRolePortal == 'customer',
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      setState(() {
+                                        _selectedRolePortal = 'customer';
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: ChoiceChip(
+                                  label: const Center(
+                                    child: Text('Photographer Portal'),
+                                  ),
+                                  selected:
+                                      _selectedRolePortal == 'photographer',
+                                  onSelected: (selected) {
+                                    if (selected) {
+                                      setState(() {
+                                        _selectedRolePortal = 'photographer';
+                                      });
+                                    }
+                                  },
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+
                           Text(
-                            _isSignUp ? 'Create PYP Account' : 'Welcome Back',
+                            cardTitle,
                             style: const TextStyle(
                               fontSize: 20,
                               fontWeight: FontWeight.bold,
@@ -242,9 +620,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            _isSignUp
-                                ? 'Select your account type to join the PYP platform.'
-                                : 'Sign in to access your dashboard, bookings, and profile.',
+                            cardSubtitle,
                             style: const TextStyle(
                               fontSize: 13,
                               color: AppColors.mutedSilver,
@@ -253,69 +629,6 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 20),
 
                           if (_isSignUp) ...[
-                            // Role Selector Segment
-                            const Text(
-                              'ACCOUNT TYPE',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.champagneGold,
-                                letterSpacing: 1.2,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: const Center(
-                                      child: Text('Client / Customer'),
-                                    ),
-                                    selected:
-                                        _selectedSignUpRole == 'customer',
-                                    onSelected: (selected) {
-                                      if (selected) {
-                                        setState(
-                                          () => _selectedSignUpRole =
-                                              'customer',
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: ChoiceChip(
-                                    label: const Center(
-                                      child: Text('Photographer'),
-                                    ),
-                                    selected:
-                                        _selectedSignUpRole == 'photographer',
-                                    onSelected: (selected) {
-                                      if (selected) {
-                                        setState(
-                                          () => _selectedSignUpRole =
-                                              'photographer',
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _selectedSignUpRole == 'photographer'
-                                  ? 'Photographer accounts submit a portfolio for admin review.'
-                                  : 'Client accounts can discover, search, and book photographers.',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: AppColors.mutedSilver,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-
                             TextField(
                               controller: _nameController,
                               decoration: const InputDecoration(
@@ -367,6 +680,59 @@ class _AuthScreenState extends State<AuthScreen> {
                             obscureText: _obscurePassword,
                             onSubmitted: (_) => _submit(),
                           ),
+                          if (!_isSignUp) ...[
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Flexible(
+                                  child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    onPressed:
+                                        (_isLoading || _isResendingConfirmation)
+                                        ? null
+                                        : _handleResendConfirmation,
+                                    child: const Text(
+                                      'Resend Confirmation?',
+                                      style: TextStyle(
+                                        color: AppColors.mutedSilver,
+                                        fontSize: 13,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: TextButton(
+                                    style: TextButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      minimumSize: Size.zero,
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
+                                    ),
+                                    onPressed: _isLoading
+                                        ? null
+                                        : _handleForgotPassword,
+                                    child: const Text(
+                                      'Forgot Password?',
+                                      style: TextStyle(
+                                        color: AppColors.champagneGold,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
                           const SizedBox(height: 24),
 
                           _isLoading
@@ -377,9 +743,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                   width: double.infinity,
                                   child: ElevatedButton(
                                     onPressed: _submit,
-                                    child: Text(
-                                      _isSignUp ? 'Create Account' : 'Sign In',
-                                    ),
+                                    child: Text(submitButtonText),
                                   ),
                                 ),
                         ],
@@ -400,6 +764,190 @@ class _AuthScreenState extends State<AuthScreen> {
                     ),
                   ),
                 ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Reset Password Screen
+class ResetPasswordScreen extends StatefulWidget {
+  final VoidCallback onPasswordResetComplete;
+
+  const ResetPasswordScreen({super.key, required this.onPasswordResetComplete});
+
+  @override
+  State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
+}
+
+class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+  bool _isLoading = false;
+  bool _obscurePassword = true;
+
+  @override
+  void dispose() {
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _updatePassword() async {
+    final password = _newPasswordController.text.trim();
+    final confirmPassword = _confirmPasswordController.text.trim();
+
+    if (password.isEmpty || confirmPassword.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter and confirm your new password.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password must be at least 6 characters long.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Passwords do not match.'),
+          backgroundColor: AppColors.statusCancelled,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await supabase.auth.updateUser(UserAttributes(password: password));
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Password updated successfully! Please sign in with your new password.',
+            ),
+            backgroundColor: AppColors.statusConfirmed,
+          ),
+        );
+        await supabase.auth.signOut();
+        widget.onPasswordResetComplete();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to reset password. Please try again.'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 32.0,
+            ),
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Set New Password',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.warmIvory,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Enter a new password to secure your account.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.mutedSilver,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: _newPasswordController,
+                        decoration: InputDecoration(
+                          labelText: 'New Password',
+                          prefixIcon: const Icon(
+                            Icons.lock_outline,
+                            color: AppColors.mutedSilver,
+                          ),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: AppColors.mutedSilver,
+                            ),
+                            onPressed: () => setState(
+                              () => _obscurePassword = !_obscurePassword,
+                            ),
+                          ),
+                        ),
+                        obscureText: _obscurePassword,
+                        textInputAction: TextInputAction.next,
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _confirmPasswordController,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirm New Password',
+                          prefixIcon: Icon(
+                            Icons.lock_outline,
+                            color: AppColors.mutedSilver,
+                          ),
+                        ),
+                        obscureText: _obscurePassword,
+                        onSubmitted: (_) => _updatePassword(),
+                      ),
+                      const SizedBox(height: 24),
+                      _isLoading
+                          ? const EditorialLoadingWidget(
+                              label: 'Updating password...',
+                            )
+                          : SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: _updatePassword,
+                                child: const Text('Update Password'),
+                              ),
+                            ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -447,12 +995,21 @@ class _HomeScreenState extends State<HomeScreen> {
           return;
         }
       }
-      // Fallback role if empty
       setState(() {
         _userRoles = {'customer'};
         _isLoadingRoles = false;
       });
     } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      // Handle deleted user / stale JWT session safely by clearing local state
+      if (errStr.contains('user from sub claim in jwt does not exist') ||
+          errStr.contains('does not exist') ||
+          errStr.contains('invalid_grant') ||
+          errStr.contains('pgrst301') ||
+          errStr.contains('jwt expired')) {
+        await supabase.auth.signOut();
+        return;
+      }
       if (mounted) {
         setState(() {
           _rolesError = e.toString();
@@ -489,161 +1046,190 @@ class _HomeScreenState extends State<HomeScreen> {
     final screenWidth = MediaQuery.of(context).size.width;
     final isWideScreen = screenWidth >= 720;
 
-    // Define navigation screens according to user role permissions
-    final screens = <Widget>[
-      const DiscoverScreen(),
-      const BookingsScreen(),
-      PhotographerProfileScreen(onProfileUpdated: _fetchUserRoles),
-      if (isAdmin) const AdminDashboardScreen(),
-    ];
+    // Distinct screens, screen titles, and navigation items based on user role
+    final List<Widget> screens;
+    final List<String> screenTitles;
+    final List<NavigationRailDestination> destinations;
+    final List<BottomNavigationBarItem> bottomNavItems;
 
-    final destinations = <NavigationRailDestination>[
-      const NavigationRailDestination(
-        icon: Icon(Icons.search),
-        selectedIcon: Icon(Icons.search, color: AppColors.champagneGold),
-        label: Text('Discover'),
-      ),
-      const NavigationRailDestination(
-        icon: Icon(Icons.calendar_month_outlined),
-        selectedIcon: Icon(
-          Icons.calendar_month,
-          color: AppColors.champagneGold,
+    if (isPhotographer) {
+      // PHOTOGRAPHER EXPERIENCE
+      screens = [
+        const PhotographerDashboardScreen(showAppBar: false),
+        PhotographerProfileScreen(
+          onProfileUpdated: _fetchUserRoles,
+          showAppBar: false,
         ),
-        label: Text('Bookings'),
-      ),
-      NavigationRailDestination(
-        icon: const Icon(Icons.person_outline),
-        selectedIcon: const Icon(Icons.person, color: AppColors.champagneGold),
-        label: Text(isPhotographer ? 'Photographer' : 'Profile'),
-      ),
-      if (isAdmin)
+        const DiscoverScreen(),
+        const BookingsScreen(showAppBar: false),
+        if (isAdmin) const AdminDashboardScreen(showAppBar: false),
+      ];
+
+      screenTitles = [
+        'Requests',
+        'Profile',
+        'Marketplace',
+        'History',
+        if (isAdmin) 'Governance',
+      ];
+
+      destinations = [
         const NavigationRailDestination(
-          icon: Icon(Icons.admin_panel_settings_outlined),
+          icon: Icon(Icons.dashboard_outlined),
+          selectedIcon: Icon(Icons.dashboard, color: AppColors.champagneGold),
+          label: Text('Requests'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.camera_alt_outlined),
+          selectedIcon: Icon(Icons.camera_alt, color: AppColors.champagneGold),
+          label: Text('Profile'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.explore_outlined),
+          selectedIcon: Icon(Icons.explore, color: AppColors.champagneGold),
+          label: Text('Marketplace'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.calendar_month_outlined),
           selectedIcon: Icon(
-            Icons.admin_panel_settings,
+            Icons.calendar_month,
             color: AppColors.champagneGold,
           ),
-          label: Text('Admin'),
+          label: Text('History'),
         ),
-    ];
+        if (isAdmin)
+          const NavigationRailDestination(
+            icon: Icon(Icons.admin_panel_settings_outlined),
+            selectedIcon: Icon(
+              Icons.admin_panel_settings,
+              color: AppColors.champagneGold,
+            ),
+            label: Text('Admin'),
+          ),
+      ];
 
-    final bottomNavItems = <BottomNavigationBarItem>[
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.search),
-        activeIcon: Icon(Icons.search, color: AppColors.champagneGold),
-        label: 'Discover',
-      ),
-      const BottomNavigationBarItem(
-        icon: Icon(Icons.calendar_month_outlined),
-        activeIcon: Icon(
-          Icons.calendar_month,
-          color: AppColors.champagneGold,
-        ),
-        label: 'Bookings',
-      ),
-      BottomNavigationBarItem(
-        icon: const Icon(Icons.person_outline),
-        activeIcon: const Icon(Icons.person, color: AppColors.champagneGold),
-        label: isPhotographer ? 'Photographer' : 'Profile',
-      ),
-      if (isAdmin)
+      bottomNavItems = [
         const BottomNavigationBarItem(
-          icon: Icon(Icons.admin_panel_settings_outlined),
+          icon: Icon(Icons.dashboard_outlined),
+          activeIcon: Icon(Icons.dashboard, color: AppColors.champagneGold),
+          label: 'Requests',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.camera_alt_outlined),
+          activeIcon: Icon(Icons.camera_alt, color: AppColors.champagneGold),
+          label: 'Profile',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.explore_outlined),
+          activeIcon: Icon(Icons.explore, color: AppColors.champagneGold),
+          label: 'Marketplace',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.calendar_month_outlined),
           activeIcon: Icon(
-            Icons.admin_panel_settings,
+            Icons.calendar_month,
             color: AppColors.champagneGold,
           ),
-          label: 'Admin',
+          label: 'History',
         ),
-    ];
+        if (isAdmin)
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.admin_panel_settings_outlined),
+            activeIcon: Icon(
+              Icons.admin_panel_settings,
+              color: AppColors.champagneGold,
+            ),
+            label: 'Admin',
+          ),
+      ];
+    } else {
+      // CLIENT / CUSTOMER EXPERIENCE
+      screens = [
+        const DiscoverScreen(),
+        const BookingsScreen(showAppBar: false),
+        ClientProfileScreen(onRoleChanged: _fetchUserRoles, showAppBar: false),
+        if (isAdmin) const AdminDashboardScreen(showAppBar: false),
+      ];
+
+      screenTitles = [
+        'Marketplace',
+        'Bookings',
+        'Profile',
+        if (isAdmin) 'Governance',
+      ];
+
+      destinations = [
+        const NavigationRailDestination(
+          icon: Icon(Icons.search),
+          selectedIcon: Icon(Icons.search, color: AppColors.champagneGold),
+          label: Text('Discover'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.calendar_month_outlined),
+          selectedIcon: Icon(
+            Icons.calendar_month,
+            color: AppColors.champagneGold,
+          ),
+          label: Text('Bookings'),
+        ),
+        const NavigationRailDestination(
+          icon: Icon(Icons.person_outline),
+          selectedIcon: Icon(Icons.person, color: AppColors.champagneGold),
+          label: Text('Profile'),
+        ),
+        if (isAdmin)
+          const NavigationRailDestination(
+            icon: Icon(Icons.admin_panel_settings_outlined),
+            selectedIcon: Icon(
+              Icons.admin_panel_settings,
+              color: AppColors.champagneGold,
+            ),
+            label: Text('Admin'),
+          ),
+      ];
+
+      bottomNavItems = [
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.search),
+          activeIcon: Icon(Icons.search, color: AppColors.champagneGold),
+          label: 'Discover',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.calendar_month_outlined),
+          activeIcon: Icon(
+            Icons.calendar_month,
+            color: AppColors.champagneGold,
+          ),
+          label: 'Bookings',
+        ),
+        const BottomNavigationBarItem(
+          icon: Icon(Icons.person_outline),
+          activeIcon: Icon(Icons.person, color: AppColors.champagneGold),
+          label: 'Profile',
+        ),
+        if (isAdmin)
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.admin_panel_settings_outlined),
+            activeIcon: Icon(
+              Icons.admin_panel_settings,
+              color: AppColors.champagneGold,
+            ),
+            label: 'Admin',
+          ),
+      ];
+    }
 
     final activeIndex = _currentIndex < screens.length ? _currentIndex : 0;
+    final activeTitle = activeIndex < screenTitles.length
+        ? screenTitles[activeIndex]
+        : '';
 
     return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Image.asset(
-                'assets/images/pyp_logo.jpeg',
-                width: 28,
-                height: 28,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const Icon(
-                  Icons.camera_alt,
-                  color: AppColors.champagneGold,
-                  size: 24,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'PYP',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
-                color: AppColors.champagneGold,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // Role Badges Display
-          Padding(
-            padding: const EdgeInsets.only(right: 8.0),
-            child: Row(
-              children: [
-                Text(
-                  userEmail.split('@').first,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppColors.warmIvory,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Wrap(
-                  spacing: 4,
-                  children: _userRoles.map((role) {
-                    final isRoleAdmin = role == 'admin';
-                    return Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isRoleAdmin
-                            ? AppColors.champagneGold.withValues(alpha: 0.2)
-                            : AppColors.darkSurfaceVariant,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: isRoleAdmin
-                              ? AppColors.champagneGold
-                              : AppColors.borderDark,
-                        ),
-                      ),
-                      child: Text(
-                        role.toUpperCase(),
-                        style: TextStyle(
-                          fontSize: 9,
-                          color: isRoleAdmin
-                              ? AppColors.champagneGold
-                              : AppColors.mutedSilver,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ],
-            ),
-          ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: AppColors.mutedSilver),
-            tooltip: 'Sign Out',
-            onPressed: () => supabase.auth.signOut(),
-          ),
-        ],
+      appBar: PYPAppHeader(
+        title: activeTitle,
+        userRoles: _userRoles,
+        userEmail: userEmail,
+        onSignOut: () => supabase.auth.signOut(),
       ),
       body: isWideScreen
           ? Row(
@@ -675,7 +1261,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-/// 3. Discover Screen (Public Discovery for Published Photographers)
+/// 3. Discover Screen (Search & Filtering for Published Photographers)
 class DiscoverScreen extends StatefulWidget {
   const DiscoverScreen({super.key});
 
@@ -688,6 +1274,8 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   final _searchController = TextEditingController();
   String _searchQuery = '';
   String _selectedCategoryFilter = 'All';
+  String _selectedSpecializationFilter = 'All';
+  String _maxBudgetFilter = 'Any';
 
   static const List<String> categoryFilters = [
     'All',
@@ -699,6 +1287,24 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
     'Commercial',
     'Travel',
   ];
+
+  static const List<String> specializationFilters = [
+    'All',
+    'Candid',
+    'Studio',
+    'Drone',
+    'Cinematic',
+    'Traditional',
+    'Editorial',
+  ];
+
+  static const Map<String, String> budgetFilters = {
+    'Any': 'Any Budget',
+    '10000': 'Up to ₹10,000',
+    '25000': 'Up to ₹25,000',
+    '50000': 'Up to ₹50,000',
+    '100000': 'Up to ₹1,00,000',
+  };
 
   @override
   void initState() {
@@ -739,7 +1345,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
         onRefresh: () async => _fetchPhotographers(),
         child: CustomScrollView(
           slivers: [
-            // Hero Search Section
+            // Search & Multi-criteria Filtering Header
             SliverToBoxAdapter(
               child: Container(
                 padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
@@ -760,7 +1366,7 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     const Text(
                       'Find Extraordinary Photographers',
                       style: TextStyle(
-                        fontSize: 24,
+                        fontSize: 22,
                         fontWeight: FontWeight.bold,
                         color: AppColors.warmIvory,
                         letterSpacing: -0.3,
@@ -768,12 +1374,12 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Search Input Bar
+                    // Search Bar
                     TextField(
                       controller: _searchController,
                       decoration: InputDecoration(
                         hintText:
-                            'Search by city, category, or photographer name...',
+                            'Search by city, specialization, category, or photographer name...',
                         prefixIcon: const Icon(
                           Icons.search,
                           color: AppColors.mutedSilver,
@@ -795,11 +1401,90 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                         () => _searchQuery = val.trim().toLowerCase(),
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
+
+                    // Filter Controls Row
+                    Row(
+                      children: [
+                        // Budget Filter Dropdown
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.darkSurfaceVariant,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.borderDark),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _maxBudgetFilter,
+                                isExpanded: true,
+                                dropdownColor: AppColors.darkSurface,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.warmIvory,
+                                ),
+                                items: budgetFilters.entries.map((e) {
+                                  return DropdownMenuItem<String>(
+                                    value: e.key,
+                                    child: Text(e.value),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(() => _maxBudgetFilter = val);
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+
+                        // Specialization Filter Dropdown
+                        Expanded(
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: AppColors.darkSurfaceVariant,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppColors.borderDark),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<String>(
+                                value: _selectedSpecializationFilter,
+                                isExpanded: true,
+                                dropdownColor: AppColors.darkSurface,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.warmIvory,
+                                ),
+                                items: specializationFilters.map((spec) {
+                                  return DropdownMenuItem<String>(
+                                    value: spec,
+                                    child: Text(
+                                      spec == 'All' ? 'All Styles' : spec,
+                                    ),
+                                  );
+                                }).toList(),
+                                onChanged: (val) {
+                                  if (val != null) {
+                                    setState(
+                                      () => _selectedSpecializationFilter = val,
+                                    );
+                                  }
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
 
                     // Category Filter Chips
                     SizedBox(
-                      height: 38,
+                      height: 36,
                       child: ListView.builder(
                         scrollDirection: Axis.horizontal,
                         itemCount: categoryFilters.length,
@@ -809,7 +1494,10 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                           return Padding(
                             padding: const EdgeInsets.only(right: 8.0),
                             child: FilterChip(
-                              label: Text(cat),
+                              label: Text(
+                                cat,
+                                style: const TextStyle(fontSize: 12),
+                              ),
                               selected: isSelected,
                               onSelected: (selected) {
                                 setState(() {
@@ -852,39 +1540,77 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
                     final name = (p['display_name'] ?? '')
                         .toString()
                         .toLowerCase();
+                    final bio = (p['bio'] ?? '').toString().toLowerCase();
+                    final startingPriceINR =
+                        ((p['starting_price_paise'] as int?) ?? 0) / 100.0;
+                    final specs = List<String>.from(
+                      p['specializations'] ?? [],
+                    ).map((s) => s.toLowerCase()).toList();
+                    final serviceLocs = List<String>.from(
+                      p['service_locations'] ?? [],
+                    ).map((l) => l.toLowerCase()).toList();
+                    final availNote = (p['availability_note'] ?? '')
+                        .toString()
+                        .toLowerCase();
 
                     final matchesSearch =
                         _searchQuery.isEmpty ||
                         city.contains(_searchQuery) ||
                         cat.contains(_searchQuery) ||
-                        name.contains(_searchQuery);
+                        name.contains(_searchQuery) ||
+                        bio.contains(_searchQuery) ||
+                        specs.any((s) => s.contains(_searchQuery)) ||
+                        serviceLocs.any((l) => l.contains(_searchQuery)) ||
+                        availNote.contains(_searchQuery);
 
                     final matchesCategory =
                         _selectedCategoryFilter == 'All' ||
                         cat.contains(_selectedCategoryFilter.toLowerCase());
 
-                    return matchesSearch && matchesCategory;
+                    final matchesSpecialization =
+                        _selectedSpecializationFilter == 'All' ||
+                        specs.contains(
+                          _selectedSpecializationFilter.toLowerCase(),
+                        );
+
+                    bool matchesBudget = true;
+                    if (_maxBudgetFilter != 'Any') {
+                      final maxLimit =
+                          double.tryParse(_maxBudgetFilter) ?? 999999;
+                      matchesBudget = startingPriceINR <= maxLimit;
+                    }
+
+                    return matchesSearch &&
+                        matchesCategory &&
+                        matchesSpecialization &&
+                        matchesBudget;
                   }).toList();
 
                   if (filteredList.isEmpty) {
                     return EmptyStateWidget(
                       icon: Icons.camera_alt_outlined,
-                      title: 'No Published Photographers',
+                      title: 'No Photographers Found',
                       message:
                           _searchQuery.isNotEmpty ||
-                              _selectedCategoryFilter != 'All'
-                          ? 'No published photographers match your search query or category filter.'
+                              _selectedCategoryFilter != 'All' ||
+                              _selectedSpecializationFilter != 'All' ||
+                              _maxBudgetFilter != 'Any'
+                          ? 'No published photographers match your active search filters or budget limit.'
                           : 'There are currently no approved photographers available in the marketplace.',
                       actionLabel:
                           _searchQuery.isNotEmpty ||
-                              _selectedCategoryFilter != 'All'
-                          ? 'Reset Filters'
+                              _selectedCategoryFilter != 'All' ||
+                              _selectedSpecializationFilter != 'All' ||
+                              _maxBudgetFilter != 'Any'
+                          ? 'Reset All Filters'
                           : null,
                       onAction: () {
                         _searchController.clear();
                         setState(() {
                           _searchQuery = '';
                           _selectedCategoryFilter = 'All';
+                          _selectedSpecializationFilter = 'All';
+                          _maxBudgetFilter = 'Any';
                         });
                       },
                     );
@@ -912,9 +1638,206 @@ class _DiscoverScreenState extends State<DiscoverScreen> {
   }
 }
 
-/// 4. Bookings Screen (Customer & Photographer Authorized Views)
+/// 4. Dedicated Photographer Incoming Requests Dashboard
+class PhotographerDashboardScreen extends StatefulWidget {
+  final bool showAppBar;
+
+  const PhotographerDashboardScreen({super.key, this.showAppBar = true});
+
+  @override
+  State<PhotographerDashboardScreen> createState() =>
+      _PhotographerDashboardScreenState();
+}
+
+class _PhotographerDashboardScreenState
+    extends State<PhotographerDashboardScreen> {
+  late Future<List<Map<String, dynamic>>> _requestsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRequests();
+  }
+
+  Future<List<Map<String, dynamic>>> _getPhotographerRequests() async {
+    final userId = supabase.auth.currentUser?.id;
+    if (userId == null) return [];
+
+    try {
+      final profile = await supabase
+          .from('photographer_profiles')
+          .select('id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (profile == null) return [];
+      final photoId = profile['id'];
+
+      final data = await supabase
+          .from('bookings')
+          .select('*, photographer_profiles(display_name)')
+          .eq('photographer_id', photoId)
+          .order('created_at', ascending: false);
+
+      return List<Map<String, dynamic>>.from(data);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void _fetchRequests() {
+    setState(() {
+      _requestsFuture = _getPhotographerRequests();
+    });
+  }
+
+  Future<void> _respondToBooking(
+    String bookingId,
+    bool accept,
+    String clientName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          accept ? 'Accept Booking Request?' : 'Decline Booking Request?',
+        ),
+        content: Text(
+          accept
+              ? 'Are you sure you want to accept $clientName\'s booking request?'
+              : 'Are you sure you want to decline $clientName\'s booking request?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accept
+                  ? AppColors.statusConfirmed
+                  : AppColors.statusCancelled,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(accept ? 'Accept Request' : 'Decline Request'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await supabase.rpc(
+        'photographer_respond_booking',
+        params: {'p_booking_id': bookingId, 'p_accept': accept},
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              accept
+                  ? 'Booking request accepted!'
+                  : 'Booking request declined.',
+            ),
+            backgroundColor: accept
+                ? AppColors.statusConfirmed
+                : AppColors.statusCancelled,
+          ),
+        );
+      }
+      _fetchRequests();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Action failed: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = supabase.auth.currentUser?.id ?? '';
+
+    return Scaffold(
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('Incoming Booking Requests'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
+                  onPressed: _fetchRequests,
+                  tooltip: 'Refresh Requests',
+                ),
+              ],
+            )
+          : null,
+      body: RefreshIndicator(
+        color: AppColors.champagneGold,
+        backgroundColor: AppColors.darkSurface,
+        onRefresh: () async => _fetchRequests(),
+        child: FutureBuilder<List<Map<String, dynamic>>>(
+          future: _requestsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const EditorialLoadingWidget(
+                label: 'Loading incoming booking requests...',
+              );
+            }
+            if (snapshot.hasError) {
+              return EditorialErrorWidget(
+                errorMessage: 'Error loading requests: ${snapshot.error}',
+                onRetry: _fetchRequests,
+              );
+            }
+
+            final requests = snapshot.data ?? [];
+            if (requests.isEmpty) {
+              return const EmptyStateWidget(
+                icon: Icons.inbox_outlined,
+                title: 'No Incoming Requests',
+                message:
+                    'You have no booking requests at this time. Ensure your profile is approved and published to receive bookings.',
+              );
+            }
+
+            return ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              itemCount: requests.length,
+              itemBuilder: (context, index) {
+                final b = requests[index];
+                final custName = b['customer_name'] ?? 'Client';
+
+                return BookingCard(
+                  booking: b,
+                  currentUserId: currentUserId,
+                  onRefreshNeeded: _fetchRequests,
+                  onPayDeposit: (_) {},
+                  onViewContactInfo: (_) {},
+                  onPhotographerRespond: (bId, accept) =>
+                      _respondToBooking(bId, accept, custName),
+                  onCustomerCancel: (_) {},
+                  onOpenChat: (bookingMap) =>
+                      BookingChatScreen.navigateTo(context, bookingMap),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// 5. Bookings Screen (Customer & Photographer Views)
 class BookingsScreen extends StatefulWidget {
-  const BookingsScreen({super.key});
+  final bool showAppBar;
+
+  const BookingsScreen({super.key, this.showAppBar = true});
 
   @override
   State<BookingsScreen> createState() => _BookingsScreenState();
@@ -922,19 +1845,11 @@ class BookingsScreen extends StatefulWidget {
 
 class _BookingsScreenState extends State<BookingsScreen> {
   late Future<List<Map<String, dynamic>>> _bookingsFuture;
-  late Razorpay _razorpay;
 
   @override
   void initState() {
     super.initState();
-    _razorpay = Razorpay();
     _fetchBookings();
-  }
-
-  @override
-  void dispose() {
-    _razorpay.clear();
-    super.dispose();
   }
 
   Future<List<Map<String, dynamic>>> _getUserBookings() async {
@@ -1015,45 +1930,357 @@ class _BookingsScreenState extends State<BookingsScreen> {
     }
   }
 
-  void _showRazorpayNotice(Map<String, dynamic> booking) {
+  Future<void> _handleAcceptanceAndPaymentPrompt(
+    Map<String, dynamic> booking,
+  ) async {
+    final bookingId = booking['id'].toString();
+    final photoInfo = booking['photographer_profiles'] as Map<String, dynamic>?;
+    final photoName = photoInfo?['display_name'] ?? 'Photographer';
+    final eventType = booking['event_type'] ?? 'Session';
     final totalPaise = (booking['total_amount_paise'] as int?) ?? 100000;
     final totalINR = totalPaise / 100.0;
+    final photoFeeINR = totalINR / 1.05;
+    final commissionINR = totalINR - photoFeeINR;
 
-    showDialog(
+    // Stage 1: Acceptance Prompt Modal
+    final proceed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Razorpay Payment Mode'),
+        title: const Text('Request Accepted!'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Deposit Amount: ₹${totalINR.toStringAsFixed(0)}',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                color: AppColors.champagneGold,
-                fontSize: 16,
-              ),
+              'Your photographer ($photoName) has accepted your request for $eventType.',
+              style: const TextStyle(color: AppColors.warmIvory, fontSize: 14),
             ),
             const SizedBox(height: 12),
             const Text(
-              'Razorpay integration is configured in Edge Functions. Payment order verification will process deposit and advance booking to confirmed.',
+              'Your photographer has accepted your request. Would you like to proceed with payment?',
               style: TextStyle(
-                color: AppColors.mutedSilver,
-                fontSize: 13,
-                height: 1.4,
+                color: AppColors.champagneGold,
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
               ),
             ),
           ],
         ),
         actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Not Now'),
+          ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Acknowledge'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Proceed to Payment'),
           ),
         ],
       ),
     );
+
+    if (proceed != true || !mounted) return;
+
+    // Stage 2: Payment Summary & Confirmation Modal
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Proceed to Payment'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Session: $eventType with $photoName',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: AppColors.warmIvory,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppColors.darkSurfaceVariant,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.borderDark),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Photographer Fee',
+                          style: TextStyle(
+                            color: AppColors.mutedSilver,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          '₹${photoFeeINR.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: AppColors.warmIvory,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Platform Service (5%)',
+                          style: TextStyle(
+                            color: AppColors.mutedSilver,
+                            fontSize: 12,
+                          ),
+                        ),
+                        Text(
+                          '₹${commissionINR.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: AppColors.mutedSilver,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: AppColors.borderDark, height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Total Deposit',
+                          style: TextStyle(
+                            color: AppColors.warmIvory,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                          ),
+                        ),
+                        Text(
+                          '₹${totalINR.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: AppColors.champagneGold,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Includes photographer session fee and 5% platform service charge. Server verified.',
+                style: TextStyle(
+                  color: AppColors.mutedSilver,
+                  fontSize: 11,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            icon: const Icon(Icons.payment, size: 16),
+            label: Text('Pay ₹${totalINR.toStringAsFixed(0)} Now'),
+            onPressed: () {
+              Navigator.pop(ctx);
+              _startRazorpayCheckout(bookingId, eventType, totalINR);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _startRazorpayCheckout(
+    String bookingId,
+    String eventType,
+    double totalINR,
+  ) async {
+    final userEmail = supabase.auth.currentUser?.email ?? '';
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Preparing secure payment session...'),
+        backgroundColor: AppColors.champagneGold,
+        duration: Duration(seconds: 2),
+      ),
+    );
+
+    try {
+      final res = await supabase.functions.invoke(
+        'create-razorpay-order',
+        body: {'booking_id': bookingId},
+      );
+
+      if (res.status != 200 || res.data == null) {
+        final errMsg = (res.data is Map)
+            ? (res.data['error'] ?? 'Failed to create payment order')
+            : 'Failed to create payment order';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Payment Error: $errMsg'),
+              backgroundColor: AppColors.statusCancelled,
+            ),
+          );
+        }
+        return;
+      }
+
+      final data = res.data as Map<String, dynamic>;
+      if (data['error'] != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Payment Error: ${data['error']}'),
+              backgroundColor: AppColors.statusCancelled,
+            ),
+          );
+        }
+        return;
+      }
+
+      final String orderId = data['order_id'];
+      final int amountPaise = data['amount_paise'];
+      final String keyId = data['key_id'];
+
+      final razorpay = Razorpay();
+
+      razorpay.on(Razorpay.EVENT_PAYMENT_SUCCESS, (
+        PaymentSuccessResponse response,
+      ) async {
+        razorpay.clear();
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Payment completed. Verifying transaction with server...',
+            ),
+            backgroundColor: AppColors.champagneGold,
+            duration: Duration(seconds: 3),
+          ),
+        );
+
+        try {
+          final verifyRes = await supabase.functions.invoke(
+            'verify-razorpay-payment',
+            body: {
+              'booking_id': bookingId,
+              'razorpay_order_id': response.orderId ?? orderId,
+              'razorpay_payment_id': response.paymentId,
+              'razorpay_signature': response.signature,
+            },
+          );
+
+          if (verifyRes.status == 200 &&
+              verifyRes.data is Map &&
+              verifyRes.data['success'] == true) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Payment verified! Booking confirmed & chat unlocked.',
+                  ),
+                  backgroundColor: AppColors.statusConfirmed,
+                ),
+              );
+            }
+          } else {
+            final err = (verifyRes.data is Map)
+                ? (verifyRes.data['error'] ?? 'Verification failed')
+                : 'Verification failed';
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Verification Failed: $err'),
+                  backgroundColor: AppColors.statusCancelled,
+                ),
+              );
+            }
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Payment verification failed: $e'),
+                backgroundColor: AppColors.statusCancelled,
+              ),
+            );
+          }
+        } finally {
+          _fetchBookings();
+        }
+      });
+
+      razorpay.on(Razorpay.EVENT_PAYMENT_ERROR, (
+        PaymentFailureResponse response,
+      ) {
+        razorpay.clear();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Payment cancelled or failed: ${response.message ?? 'Unknown error'}',
+              ),
+              backgroundColor: AppColors.statusCancelled,
+            ),
+          );
+        }
+        _fetchBookings();
+      });
+
+      razorpay.on(Razorpay.EVENT_EXTERNAL_WALLET, (
+        ExternalWalletResponse response,
+      ) {
+        razorpay.clear();
+      });
+
+      final options = {
+        'key': keyId,
+        'amount': amountPaise,
+        'name': 'PYP — Pick Your Photographer',
+        'description': '$eventType Session Booking Deposit',
+        'order_id': orderId,
+        'prefill': {'email': userEmail},
+        'theme': {'color': '#C6A76A'},
+      };
+
+      try {
+        razorpay.open(options);
+      } catch (e) {
+        razorpay.clear();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Unable to open checkout widget: $e'),
+              backgroundColor: AppColors.statusCancelled,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initiate payment: $e'),
+            backgroundColor: AppColors.statusCancelled,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _showContactInfo(String bookingId) async {
@@ -1144,16 +2371,18 @@ class _BookingsScreenState extends State<BookingsScreen> {
     final currentUserId = supabase.auth.currentUser?.id ?? '';
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('My Bookings'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
-            onPressed: _fetchBookings,
-            tooltip: 'Refresh Bookings',
-          ),
-        ],
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('My Bookings'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
+                  onPressed: _fetchBookings,
+                  tooltip: 'Refresh Bookings',
+                ),
+              ],
+            )
+          : null,
       body: RefreshIndicator(
         color: AppColors.champagneGold,
         backgroundColor: AppColors.darkSurface,
@@ -1191,10 +2420,12 @@ class _BookingsScreenState extends State<BookingsScreen> {
                   booking: b,
                   currentUserId: currentUserId,
                   onRefreshNeeded: _fetchBookings,
-                  onPayDeposit: _showRazorpayNotice,
+                  onPayDeposit: _handleAcceptanceAndPaymentPrompt,
                   onViewContactInfo: _showContactInfo,
                   onPhotographerRespond: _respondToBooking,
                   onCustomerCancel: _cancelBooking,
+                  onOpenChat: (bookingMap) =>
+                      BookingChatScreen.navigateTo(context, bookingMap),
                 );
               },
             );
@@ -1205,11 +2436,189 @@ class _BookingsScreenState extends State<BookingsScreen> {
   }
 }
 
-/// 5. Photographer Profile & Portfolio Management Screen
+/// 6. Client Profile & Account View
+class ClientProfileScreen extends StatelessWidget {
+  final VoidCallback onRoleChanged;
+  final bool showAppBar;
+
+  const ClientProfileScreen({
+    super.key,
+    required this.onRoleChanged,
+    this.showAppBar = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final user = supabase.auth.currentUser;
+    final email = user?.email ?? 'Client';
+
+    return Scaffold(
+      appBar: showAppBar
+          ? AppBar(title: const Text('Client Account & Settings'))
+          : null,
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 28,
+                      backgroundColor: AppColors.champagneGold,
+                      child: Icon(
+                        Icons.person,
+                        color: AppColors.obsidian,
+                        size: 32,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'CLIENT ACCOUNT',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.champagneGold,
+                              letterSpacing: 1.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            email,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.warmIvory,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Authenticated Marketplace Client',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: AppColors.mutedSilver,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Become a Photographer CTA Banner
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: AppColors.darkSurfaceVariant,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: AppColors.borderDark),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(
+                        Icons.camera_alt,
+                        color: AppColors.champagneGold,
+                        size: 22,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        'Are you a Professional Photographer?',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.warmIvory,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Join PYP marketplace to showcase your portfolio, set pricing, receive booking requests, and manage sessions.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: AppColors.mutedSilver,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    icon: const Icon(Icons.verified, size: 18),
+                    label: const Text('Apply as Photographer'),
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PhotographerProfileScreen(
+                            onProfileUpdated: onRoleChanged,
+                            showAppBar: true,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.statusCancelled,
+                  side: const BorderSide(color: AppColors.statusCancelled),
+                ),
+                icon: const Icon(Icons.logout),
+                label: const Text('Sign Out'),
+                onPressed: () => supabase.auth.signOut(),
+              ),
+            ),
+            if (kDebugMode) ...[
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  key: const Key('test_crashlytics_button'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.statusCancelled,
+                    side: const BorderSide(color: AppColors.statusCancelled),
+                  ),
+                  icon: const Icon(Icons.bug_report),
+                  label: const Text('Test Crashlytics Crash (Debug Only)'),
+                  onPressed: () {
+                    FirebaseCrashlytics.instance.crash();
+                  },
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// 7. Photographer Profile & Portfolio Management Screen
 class PhotographerProfileScreen extends StatefulWidget {
   final VoidCallback? onProfileUpdated;
+  final bool showAppBar;
 
-  const PhotographerProfileScreen({super.key, this.onProfileUpdated});
+  const PhotographerProfileScreen({
+    super.key,
+    this.onProfileUpdated,
+    this.showAppBar = true,
+  });
 
   @override
   State<PhotographerProfileScreen> createState() =>
@@ -1222,6 +2631,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
   final _cityController = TextEditingController();
   final _categoryController = TextEditingController();
   final _priceController = TextEditingController(text: '2000');
+  final _experienceController = TextEditingController(text: '3');
+  final _specializationsController = TextEditingController();
+  final _locationsController = TextEditingController();
+  final _availabilityController = TextEditingController();
   final _phoneController = TextEditingController();
   final _emailController = TextEditingController();
 
@@ -1244,6 +2657,10 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     _cityController.dispose();
     _categoryController.dispose();
     _priceController.dispose();
+    _experienceController.dispose();
+    _specializationsController.dispose();
+    _locationsController.dispose();
+    _availabilityController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
     super.dispose();
@@ -1269,6 +2686,13 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
         final priceINR =
             ((profileRes['starting_price_paise'] as int?) ?? 100000) / 100.0;
         _priceController.text = priceINR.toStringAsFixed(0);
+        _experienceController.text = (profileRes['experience_years'] ?? 3)
+            .toString();
+        final specs = List<String>.from(profileRes['specializations'] ?? []);
+        _specializationsController.text = specs.join(', ');
+        final locs = List<String>.from(profileRes['service_locations'] ?? []);
+        _locationsController.text = locs.join(', ');
+        _availabilityController.text = profileRes['availability_note'] ?? '';
         _isPublished = profileRes['is_published'] == true;
         _portfolioUrls = List<String>.from(profileRes['portfolio_urls'] ?? []);
 
@@ -1298,6 +2722,19 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     final category = _categoryController.text.trim();
     final priceINR = double.tryParse(_priceController.text) ?? 2000.0;
     final pricePaise = (priceINR * 100).toInt();
+    final experienceYears =
+        int.tryParse(_experienceController.text.trim()) ?? 0;
+    final specializations = _specializationsController.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final serviceLocations = _locationsController.text
+        .split(',')
+        .map((s) => s.trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+    final availabilityNote = _availabilityController.text.trim();
 
     if (name.isEmpty || city.isEmpty || category.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1323,6 +2760,12 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
           'p_phone': _phoneController.text.trim(),
           'p_email': _emailController.text.trim(),
           'p_portfolio_urls': _portfolioUrls,
+          'p_experience_years': experienceYears,
+          'p_specializations': specializations,
+          'p_service_locations': serviceLocations,
+          'p_availability_note': availabilityNote.isNotEmpty
+              ? availabilityNote
+              : null,
         },
       );
 
@@ -1359,7 +2802,9 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Photographer Portal & Profile')),
+      appBar: widget.showAppBar
+          ? AppBar(title: const Text('Photographer Portal & Profile'))
+          : null,
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20.0),
         child: Column(
@@ -1457,7 +2902,9 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
                 Expanded(
                   child: TextField(
                     controller: _cityController,
-                    decoration: const InputDecoration(labelText: 'City'),
+                    decoration: const InputDecoration(
+                      labelText: 'Primary City',
+                    ),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1472,13 +2919,53 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _priceController,
+                    decoration: const InputDecoration(
+                      labelText: 'Starting Price (INR ₹)',
+                      prefixText: '₹ ',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _experienceController,
+                    decoration: const InputDecoration(
+                      labelText: 'Years of Experience',
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             TextField(
-              controller: _priceController,
+              controller: _specializationsController,
               decoration: const InputDecoration(
-                labelText: 'Starting Price (INR ₹)',
-                prefixText: '₹ ',
+                labelText:
+                    'Specializations (Comma-separated, e.g. Candid, Drone, Studio)',
               ),
-              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _locationsController,
+              decoration: const InputDecoration(
+                labelText:
+                    'Service Locations (Comma-separated, e.g. Mumbai, Pune, Goa)',
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _availabilityController,
+              decoration: const InputDecoration(
+                labelText:
+                    'Availability Note (e.g. Available weekends & peak season)',
+              ),
             ),
             const SizedBox(height: 24),
 
@@ -1541,9 +3028,11 @@ class _PhotographerProfileScreenState extends State<PhotographerProfileScreen> {
   }
 }
 
-/// 6. Admin Dashboard Screen (Full Platform Governance & Moderation)
+/// 8. Admin Dashboard Screen (Platform Governance & Moderation)
 class AdminDashboardScreen extends StatefulWidget {
-  const AdminDashboardScreen({super.key});
+  final bool showAppBar;
+
+  const AdminDashboardScreen({super.key, this.showAppBar = true});
 
   @override
   State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
@@ -1659,30 +3148,46 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Platform Governance'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
-            onPressed: _refreshAll,
-            tooltip: 'Refresh Platform Data',
-          ),
-        ],
-        bottom: TabBar(
-          controller: _tabController,
-          indicatorColor: AppColors.champagneGold,
-          labelColor: AppColors.champagneGold,
-          unselectedLabelColor: AppColors.mutedSilver,
-          tabs: const [
-            Tab(icon: Icon(Icons.verified_user), text: 'Photographers'),
-            Tab(icon: Icon(Icons.receipt_long), text: 'All Bookings'),
-            Tab(icon: Icon(Icons.people), text: 'Clients'),
-          ],
-        ),
-      ),
+      appBar: widget.showAppBar
+          ? AppBar(
+              title: const Text('Admin Platform Governance'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: AppColors.mutedSilver),
+                  onPressed: _refreshAll,
+                  tooltip: 'Refresh Platform Data',
+                ),
+              ],
+              bottom: TabBar(
+                controller: _tabController,
+                indicatorColor: AppColors.champagneGold,
+                labelColor: AppColors.champagneGold,
+                unselectedLabelColor: AppColors.mutedSilver,
+                tabs: const [
+                  Tab(icon: Icon(Icons.verified_user), text: 'Photographers'),
+                  Tab(icon: Icon(Icons.receipt_long), text: 'All Bookings'),
+                  Tab(icon: Icon(Icons.people), text: 'Clients'),
+                ],
+              ),
+            )
+          : null,
       body: Column(
         children: [
-          // Platform Statistics Summary Bar
+          if (!widget.showAppBar)
+            Container(
+              color: AppColors.darkSurface,
+              child: TabBar(
+                controller: _tabController,
+                indicatorColor: AppColors.champagneGold,
+                labelColor: AppColors.champagneGold,
+                unselectedLabelColor: AppColors.mutedSilver,
+                tabs: const [
+                  Tab(icon: Icon(Icons.verified_user), text: 'Photographers'),
+                  Tab(icon: Icon(Icons.receipt_long), text: 'All Bookings'),
+                  Tab(icon: Icon(Icons.people), text: 'Clients'),
+                ],
+              ),
+            ),
           FutureBuilder<Map<String, dynamic>>(
             future: _statsFuture,
             builder: (context, snapshot) {
@@ -1725,11 +3230,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      _buildStatBadge(
-                        'Clients',
-                        '$totalClients',
-                        Icons.people,
-                      ),
+                      _buildStatBadge('Clients', '$totalClients', Icons.people),
                       const SizedBox(width: 8),
                       _buildStatBadge(
                         'Photographers',
@@ -1768,18 +3269,12 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             },
           ),
 
-          // Tabbed Content Views
           Expanded(
             child: TabBarView(
               controller: _tabController,
               children: [
-                // 1. Photographers Management & Moderation Tab
                 _buildPhotographersTab(),
-
-                // 2. All Bookings Monitor Tab
                 _buildBookingsTab(),
-
-                // 3. Registered Clients Directory Tab
                 _buildClientsTab(),
               ],
             ),
@@ -1803,9 +3298,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
             : AppColors.darkSurfaceVariant,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: highlight
-              ? AppColors.statusRequested
-              : AppColors.borderDark,
+          color: highlight ? AppColors.statusRequested : AppColors.borderDark,
         ),
       ),
       child: Row(
@@ -1876,7 +3369,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
 
           return Column(
             children: [
-              // Filter Chips
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                 child: Row(
@@ -1927,8 +3419,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                           final pricePaise =
                               (photo['out_starting_price_paise'] ?? 0) as int;
                           final priceINR = pricePaise / 100.0;
-                          final isPublished =
-                              photo['out_is_published'] == true;
+                          final isPublished = photo['out_is_published'] == true;
                           final phone = photo['out_phone'] ?? 'N/A';
                           final email = photo['out_email'] ?? 'N/A';
 
@@ -1961,18 +3452,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
                                         decoration: BoxDecoration(
                                           color: isPublished
                                               ? AppColors.statusConfirmed
-                                                  .withValues(alpha: 0.15)
+                                                    .withValues(alpha: 0.15)
                                               : AppColors.statusRequested
-                                                  .withValues(alpha: 0.15),
+                                                    .withValues(alpha: 0.15),
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),
                                           border: Border.all(
                                             color: isPublished
                                                 ? AppColors.statusConfirmed
-                                                    .withValues(alpha: 0.4)
+                                                      .withValues(alpha: 0.4)
                                                 : AppColors.statusRequested
-                                                    .withValues(alpha: 0.4),
+                                                      .withValues(alpha: 0.4),
                                           ),
                                         ),
                                         child: Text(
@@ -2117,8 +3608,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen>
           itemCount: bookings.length,
           itemBuilder: (context, index) {
             final b = bookings[index];
-            final photoName =
-                b['out_photographer_name'] ?? 'Photographer';
+            final photoName = b['out_photographer_name'] ?? 'Photographer';
             final custName = b['out_customer_name'] ?? 'Customer';
             final eventType = b['out_event_type'] ?? 'Event';
             final city = b['out_event_city'] ?? 'City';
