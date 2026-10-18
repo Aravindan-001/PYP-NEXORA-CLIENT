@@ -2,13 +2,15 @@
 
 <div align="center">
 
-  <h3>Pick Your Photographer — Premium Editorial Marketplace</h3>
-  <p>An editorial photography marketplace connecting clients with vetted professional photographers through server-authoritative booking, payment, notification, and portfolio management workflows.</p>
+  <h1>PYP — Pick Your Photographer</h1>
+  <p><b>An Editorial Cross-Platform Marketplace Built with Flutter, Supabase & Razorpay</b></p>
+  <p>A server-authoritative photography marketplace connecting clients with vetted professional photographers through secure booking, payment, notification, chat, and portfolio management workflows.</p>
 
-  [![Flutter](https://img.shields.io/badge/Flutter-3.19+-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
-  [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%2017-3FCF8E?style=for-the-badge&logo=supabase&logoColor=white)](https://supabase.com)
-  [![Dart](https://img.shields.io/badge/Dart-3.3+-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
-  [![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+  [![Engineering CI](https://github.com/Aravindan-001/PYP-NEXORA-CLIENT/actions/workflows/ci.yml/badge.svg)](https://github.com/Aravindan-001/PYP-NEXORA-CLIENT/actions/workflows/ci.yml)
+  [![Flutter](https://img.shields.io/badge/Flutter-3.19+-02569B?logo=flutter&logoColor=white)](https://flutter.dev)
+  [![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL%2017-3FCF8E?logo=supabase&logoColor=white)](https://supabase.com)
+  [![Dart](https://img.shields.io/badge/Dart-3.3+-0175C2?logo=dart&logoColor=white)](https://dart.dev)
+  [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
   [![Analysis](https://img.shields.io/badge/Flutter_Analyze-0_Issues-brightgreen?style=flat-square)](https://flutter.dev)
   [![Flutter Tests](https://img.shields.io/badge/Flutter_Tests-42%2F42_Passed-success?style=flat-square)](https://flutter.dev)
@@ -21,9 +23,11 @@
 
 ## 📚 Technical Documentation Index
 
-| Document | Primary Focus & Contents |
+To maintain a concise, scannable README, detailed architectural, security, testing, and deployment specifications live in dedicated engineering documents:
+
+| Document | Scope & Contents |
 | :--- | :--- |
-| 📊 **[Project Status](docs/PROJECT_STATUS.md)** | Executive summary, tech stack manifest, milestone checklist, test evidence & deployment status. |
+| 📊 **[Project Status Report](docs/PROJECT_STATUS.md)** | Executive summary, tech stack manifest, milestone checklist, test evidence & deployment readiness. |
 | 🏗️ **[System Architecture](docs/ARCHITECTURE.md)** | High-level component design, Flutter layers, Supabase backend, Edge Functions, trust boundaries. |
 | 🔄 **[Booking Lifecycle](docs/BOOKING_LIFECYCLE.md)** | Booking state machine, transition matrix, financial fee formulas, chat unlocking & refund settlement. |
 | 🛡️ **[Security Model](docs/SECURITY_MODEL.md)** | RBAC enforcement, PostgreSQL RLS policies, storage folder RLS, service-role RPC wrappers, threat matrix. |
@@ -37,19 +41,20 @@
 
 ## ⚡ Verified Status Dashboard
 
-| Verification Layer | Local Test Command | Execution Result | Verification Scope |
+| Quality Signal | Local Test Command | Result | Verification Scope |
 | :--- | :--- | :---: | :--- |
 | **Flutter Static Analysis** | `flutter analyze` | **PASSED (0 issues)** | Zero lint, type, or static analysis warnings across `lib/` and `test/`. |
-| **Flutter Test Suite** | `flutter test test` | **PASSED (42 / 42)** | Auth routing, marketplace search, fee calculations, PDF invoice export & chat. |
+| **Flutter Unit & Widget Tests** | `flutter test test` | **PASSED (42 / 42)** | Auth routing, marketplace search, fee calculations, PDF invoice export & chat. |
 | **Database Security (pgTAP)** | `supabase test db --local` | **PASSED (128 / 128)** | RLS policies, RBAC, RPC authorization, refund ceiling, notification write security. |
+| **GitHub Actions CI** | `.github/workflows/ci.yml` | **Configured** | Automated Flutter analyze/test/build + Supabase DB pgTAP test workflow. |
 | **Automated Test Runner** | `.\tool\run_pyp_tests.ps1` | **PASSED (2 / 2 tasks)** | Combined analyzer and widget test execution script. |
 | **Local Migrations** | `supabase migration list` | **17 Applied** | 17 forward-only SQL migrations applied to local container database. |
 
 ---
 
-## 🏛️ System Architecture
+## 🏛️ System Architecture & Trust Boundaries
 
-PYP utilizes a **Zero-Trust, Server-Authoritative Architecture**. Authorization decisions, 5% fee calculations, role checks, and contact detail releases are enforced at the database layer.
+PYP utilizes a **Zero-Trust, Server-Authoritative Architecture**. Authorization decisions, 5% fee calculations, role checks, and payment verifications are enforced at the database layer.
 
 ```mermaid
 graph TD
@@ -80,7 +85,7 @@ graph TD
 
 ---
 
-## 🔄 Booking & Settlement Journey
+## 🔄 Booking & Payment Lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -118,21 +123,106 @@ sequenceDiagram
 
 ---
 
-## 💡 Role-Based Feature Matrix
+## 💸 Refund Accounting & Reversal Lifecycle
 
-| Capability / Feature | Customer (`customer`) | Photographer (`photographer`) | Administrator (`admin`) |
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin
+    participant Razorpay as Razorpay API
+    participant Edge as razorpay-webhook Edge Function
+    participant Wrapper as public.process_refund_success Wrapper
+    participant DB as Supabase DB (private.process_refund_success)
+    participant Refunds as public.refunds Table
+    participant Payouts as public.payouts Table
+
+    Admin->>Razorpay: Triggers partial or full refund
+    Razorpay->>Edge: POST /razorpay-webhook (refund.processed)
+    Note over Edge: Verifies X-Razorpay-Signature HMAC SHA-256<br/>& checks processed_webhook_events
+    Edge->>Wrapper: rpc('process_refund_success', params) [service_role]
+    Note over Wrapper: Enforces auth.role() = 'service_role'<br/>Calls private.process_refund_success
+    Wrapper->>DB: Executes private.process_refund_success
+    Note over DB: Locks payment row FOR UPDATE<br/>Checks cumulative refunds in public.refunds
+
+    alt Cumulative Refunds <= Captured Amount
+        DB->>Refunds: Inserts auditable record into public.refunds
+        alt Cumulative Refund == Captured Amount (Full Refund)
+            DB->>Payouts: Updates payout status -> 'reversed'
+            Note over DB: Payment status -> 'refunded'
+        else Cumulative Refund < Captured Amount (Partial Refund)
+            Note over DB: Payment status -> 'partially_refunded'<br/>Payout remains 'pending'
+        end
+    else Cumulative Refunds > Captured Amount
+        DB-->>Edge: Rejects refund (exceeds captured payment)
+    end
+```
+
+---
+
+## 🔒 RPC Security Wrapper Isolation
+
+```mermaid
+graph LR
+    subgraph "Untrusted Client Space (PostgREST API)"
+        Client[Flutter App / Public REST]
+    end
+
+    subgraph "Trusted Serverless Space"
+        ServiceRole[Supabase Edge Function<br/>SUPABASE_SERVICE_ROLE_KEY]
+    end
+
+    subgraph "Public Schema (Exposed)"
+        Wrapper[public.process_payment_success<br/>SECURITY DEFINER<br/>REVOKE ALL FROM PUBLIC/anon/authenticated<br/>GRANT EXECUTE TO service_role]
+    end
+
+    subgraph "Private Schema (Unexposed)"
+        PrivateFunc[private.process_payment_success<br/>SET search_path = '']
+    end
+
+    Client --x|Permission Denied| Wrapper
+    Client --x|Not Exposed| PrivateFunc
+    ServiceRole -->|Executes Wrapper| Wrapper
+    Wrapper -->|Server-Side Checks Pass| PrivateFunc
+```
+
+---
+
+## 📊 Feature Maturity & Verification Matrix
+
+| Capability / Subsystem | Implementation Status | Automated Test Level | Verification Level |
 | :--- | :---: | :---: | :---: |
-| **Marketplace Search & Category Filter** | ✅ | ✅ | ✅ |
-| **View Published Portfolios** | ✅ | ✅ | ✅ |
-| **Submit Booking Requests** | ✅ | ❌ | ❌ |
-| **Accept / Decline Booking Requests** | ❌ | ✅ | ❌ |
-| **Upload / Manage Portfolio Images** | ❌ | ✅ | ❌ |
-| **Pay Booking Deposit via Razorpay** | ✅ | ❌ | ❌ |
-| **Realtime Chat (Confirmed Bookings)** | ✅ | ✅ | ❌ |
-| **Generate & Export PDF Invoices** | ✅ | ✅ | ✅ |
-| **View Private Contact Details** | ✅ (Confirmed Only) | ✅ (Confirmed Only) | ✅ |
-| **Approve / Suspend Photographers** | ❌ | ❌ | ✅ |
-| **View Platform Revenue & Stats** | ❌ | ❌ | ✅ |
+| **Authentication & Session Routing** | `Implemented` | `42 Unit & Widget Tests` | `Verified Locally` |
+| **Server-Enforced Role-Based Access (RBAC)** | `Implemented` | `12 pgTAP DB Tests` | `Verified (Server RLS)` |
+| **Marketplace Search & Category Filter** | `Implemented` | `Widget & Unit Tests` | `Verified Locally` |
+| **Portfolio Upload & Storage Manager** | `Implemented` | `11 pgTAP DB Tests` | `Verified (Storage RLS)` |
+| **Unapproved Photographer Isolation** | `Implemented` | `pgTAP DB Tests` | `Verified (Server RLS)` |
+| **Server-Authoritative Fee Calculation** | `Implemented` | `Unit & DB Tests` | `Verified (Integer Paise)` |
+| **Razorpay Checkout & Signature Check** | `Implemented` | `6 pgTAP DB Tests` | `Verified (HMAC-SHA256)` |
+| **Service-Role Payment RPC Wrappers** | `Implemented` | `12 pgTAP DB Tests` | `Verified (Local DB + Edge)` |
+| **Auditable Refund Ledger & Ceiling** | `Implemented` | `13 pgTAP DB Tests` | `Verified (Ledger + RLS)` |
+| **Realtime Confirmed Session Chat** | `Implemented` | `Widget & RLS Tests` | `Verified (Participant RLS)` |
+| **Realtime Notifications System** | `Implemented` | `19 pgTAP DB Tests` | `Verified (Write Hardened)` |
+| **Authoritative PDF Invoice Export** | `Implemented` | `Unit & Widget Tests` | `Verified (PDF Export)` |
+| **Admin Governance Dashboard** | `Implemented` | `6 pgTAP DB Tests` | `Verified (Admin RPCs)` |
+| **Automated Razorpay Route Transfers** | `Planned` | `Database Ready` | `Pending Merchant Setup` |
+| **Production Remote Deployment** | `Planned` | `Local Suite Passing` | `Pending User Approval` |
+
+---
+
+## 📸 Product Showcase & Screenshot Capture Guide
+
+PYP features a Material 3 editorial dark design system with an Obsidian Black (`#080808`) and Champagne Gold (`#C6A76A`) palette:
+
+- **Auth Screen**: Branded sign-in/sign-up card with logo and password visibility toggle.
+- **Discover Marketplace**: Hero banner, search bar, category chips, and photographer cards.
+- **Photographer Profile**: Profile details, private contact info, and portfolio manager.
+- **Booking Reservation Dialog**: Date picker, event details, and transparent 5% fee summary.
+- **My Bookings Screen**: Booking cards with status badges and action triggers.
+- **Authoritative Invoice PDF**: Printable/exportable PDF tax invoices and receipts.
+- **Realtime Session Chat**: Participant-only chat unlocked strictly for confirmed bookings.
+- **Admin Dashboard**: Realtime stats, photographer moderation, and client directory.
+
+*To capture and add emulator screenshots or a demo GIF, refer to [docs/screenshots/README.md](docs/screenshots/README.md).*
 
 ---
 
@@ -143,33 +233,100 @@ PYP charges customers a transparent **5% platform service fee** on top of the ph
 - **Formula**:
   $$\text{platform\_fee\_paise} = \text{round}\left(\frac{\text{photographer\_quote\_paise} \times 5.0}{100.0}\right)$$
   $$\text{customer\_total\_paise} = \text{photographer\_quote\_paise} + \text{platform\_fee\_paise}$$
-- **Example Breakdown**:
+- **Example**:
   - Photographer Quotation: **₹1,000** (100,000 paise)
   - PYP Platform Fee (5%): **₹50** (5,000 paise)
   - Customer Total Payable: **₹1,050** (105,000 paise)
   - Photographer Payout: **₹1,000** (100,000 paise)
   - PYP Retained Platform Revenue: **₹50** (5,000 paise)
-- **Monetary Precision**: All monetary values are handled strictly in integer paise across database RPCs, Edge Functions, and Flutter UI, avoiding floating-point currency rounding errors.
+- **Monetary Precision**: All financial data is calculated and stored in integer paise across database RPCs and Edge Functions, avoiding floating-point currency discrepancies.
 
 ---
 
-## 🛡️ Security Architecture Summary
+## 🔑 Role-Based Access Control (RBAC) Overview
 
-- **Server-Side Authorization**: Roles are stored in `public.user_roles` and checked using recursion-safe functions (`private.is_admin()`).
-- **Metadata Tampering Immunity**: Public signups passing `requested_role: 'admin'` in user metadata are strictly overridden to `customer` by the `private.handle_new_user()` trigger.
-- **Row Level Security (RLS)**: Active on 100% of tables. Direct client write privileges on `payments`, `payouts`, `commission_ledger`, `refunds`, and `notifications` are revoked.
-- **Service Role RPC Wrappers**: `public.process_payment_success` and `public.process_refund_success` specify `SECURITY DEFINER`, `SET search_path = ''`, and enforce `auth.role() = 'service_role'`.
-- **Storage Ownership RLS**: Files in `portfolio_images` bucket are strictly bound to `<user_id>/...` folders using `(storage.foldername(name))[1] = auth.uid()`.
+PYP enforces three distinct server-verified roles in `public.user_roles`:
+
+### 1. Client / Customer (`customer`)
+- Browse approved/published photographers.
+- Submit booking requests and manage own bookings.
+- Pay deposit, view invoices, generate PDF receipts, and chat with photographers for confirmed bookings.
+
+### 2. Photographer (`photographer`)
+- Manage public profile and private contact details.
+- Upload, replace, and delete portfolio images in `portfolio_images` bucket (protected by folder-ownership RLS).
+- Manage incoming booking requests and participate in confirmed booking chats.
+- Unapproved or suspended profiles default to `is_published = false` and are hidden from public discovery.
+
+### 3. Administrator (`admin`)
+- Access dedicated Admin Platform Governance Dashboard.
+- Monitor real-time platform statistics (`admin_get_platform_stats`), bookings, and client directory.
+- Moderate photographer applications (`approve`, `reject`, `suspend`, `reactivate`).
+- Provisioned exclusively via trusted SQL procedure (`SELECT private.provision_admin('admin@domain.com')`).
 
 ---
 
-## 🗄️ Database & Edge Functions Overview
+## 🔐 Secure Procedure for Provisioning the First Admin
 
-- **Database Engine**: PostgreSQL 17 with 17 forward-only SQL migrations (`20261011134024` through `20261016120000`).
-- **Edge Functions**:
-  - `create-razorpay-order`: Generates Razorpay checkout orders.
-  - `verify-razorpay-payment`: Validates payment signatures and confirms bookings.
-  - `razorpay-webhook`: Asynchronous webhook handler for captured payments, failures, and refunds with event deduplication (`processed_webhook_events`).
+Public signup strictly rejects requests to assign the `admin` role. The initial administrator must be provisioned via SQL:
+
+1. Register a user account in PYP (e.g. `admin@pyp.app`) via the app or Supabase console.
+2. Open your local or production Supabase SQL Editor.
+3. Execute the provisioning procedure:
+   ```sql
+   SELECT private.provision_admin('admin@pyp.app');
+   ```
+4. Upon next sign-in, the user will be assigned the `admin` role in `public.user_roles`.
+
+---
+
+## ⚙️ Environment Variables & Configuration
+
+Create a `.env` file in the project root or configure environment secrets in Supabase Edge Functions:
+
+```env
+# Flutter Client Variables
+SUPABASE_URL=http://127.0.0.1:54321
+SUPABASE_ANON_KEY=your_publishable_anon_key_here
+
+# Supabase Edge Function Secrets (Set via 'supabase secrets set')
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
+RAZORPAY_KEY_ID=your_razorpay_key_id_here
+RAZORPAY_KEY_SECRET=your_razorpay_key_secret_here
+RAZORPAY_WEBHOOK_SECRET=your_razorpay_webhook_secret_here
+```
+
+*Note: Never hardcode `SUPABASE_SERVICE_ROLE_KEY`, `RAZORPAY_KEY_SECRET`, or `RAZORPAY_WEBHOOK_SECRET` in Flutter client code.*
+
+---
+
+## 🛠️ Local Setup & Development Instructions
+
+### Prerequisites
+- [Flutter SDK](https://docs.flutter.dev/get-started/install) (`^3.19.0` or higher)
+- [Supabase CLI](https://supabase.com/docs/guides/cli) (`v2.117.0` or higher)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+
+### 1. Local Supabase Container Stack
+```bash
+# Start local Supabase containers
+supabase start
+
+# Run all 128 local pgTAP database security tests
+supabase test db --local
+```
+
+### 2. Flutter Application
+```bash
+# Install Flutter dependencies
+flutter pub get
+
+# Run static code analysis
+flutter analyze
+
+# Run Flutter unit and widget tests
+flutter test test
+```
 
 ---
 
@@ -177,7 +334,11 @@ PYP charges customers a transparent **5% platform service fee** on top of the ph
 
 ```
 pyp_app/
+├── .github/
+│   └── workflows/
+│       └── ci.yml                      # GitHub Actions CI pipeline
 ├── docs/                               # Comprehensive Technical Documentation
+│   ├── screenshots/                    # Screenshot showcase guide
 │   ├── ARCHITECTURE.md                 # System architecture & component design
 │   ├── BOOKING_LIFECYCLE.md            # Booking state machine & financial formulas
 │   ├── DATABASE_SCHEMA.md              # Database ER diagram & 17 migrations
@@ -190,7 +351,7 @@ pyp_app/
 │   ├── main.dart                       # Core app entry, routing & screens
 │   ├── firebase_options.dart           # FlutterFire configuration options
 │   ├── theme/
-│   │   └── app_theme.dart              # Material 3 dark editorial design system
+│   │   └── app_theme.dart              # Material 3 editorial design system
 │   ├── services/
 │   │   ├── portfolio_service.dart      # Storage bucket image manager
 │   │   └── invoice_pdf_service.dart    # Authoritative PDF invoice generator
@@ -203,8 +364,8 @@ pyp_app/
 │       ├── invoice_dialog.dart         # Invoice viewer & PDF export sheet
 │       ├── notifications_widget.dart   # Realtime notification center
 │       ├── photographer_card.dart      # Marketplace photographer card
-│       ├── portfolio_manager_widget.dart  # Photographer portfolio uploader
-│       ├── portfolio_viewer_widget.dart  # Customer portfolio showcase
+│       ├── portfolio_manager_widget.dart # Photographer portfolio uploader
+│       ├── portfolio_viewer_widget.dart # Customer portfolio showcase
 │       └── pyp_header.dart             # Responsive header & role switcher
 ├── test/                               # 42 Flutter unit & widget tests
 ├── integration_test/                   # Mobile & web integration tests
@@ -220,51 +381,6 @@ pyp_app/
 ├── ROADMAP.md                          # Product roadmap & feature milestones
 ├── pubspec.yaml
 └── README.md
-```
-
----
-
-## 🛠️ Local Setup & Development Instructions
-
-### Prerequisites
-- [Flutter SDK](https://docs.flutter.dev/get-started/install) (`^3.19.0` or higher)
-- [Supabase CLI](https://supabase.com/docs/guides/cli) (`v2.117.0` or higher)
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-
-### 1. Environment Configuration
-Create a `.env` file in the project root or configure environment secrets in Supabase Edge Functions:
-
-```env
-# Flutter Client Variables
-SUPABASE_URL=http://127.0.0.1:54321
-SUPABASE_ANON_KEY=your_publishable_anon_key_here
-
-# Supabase Edge Function Secrets (Set via 'supabase secrets set')
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
-RAZORPAY_KEY_ID=your_razorpay_key_id_here
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret_here
-RAZORPAY_WEBHOOK_SECRET=your_razorpay_webhook_secret_here
-```
-
-### 2. Running Local Supabase Stack
-```bash
-# Start local Supabase containers
-supabase start
-
-# Run all 128 local pgTAP database security tests
-supabase test db --local
-```
-
-### 3. Running Flutter Application
-```bash
-# Install Flutter dependencies
-flutter pub get
-
-# Run static code analysis
-flutter analyze
-
-# Run unit and widget tests
-flutter test test
 ```
 
 ---

@@ -2,15 +2,21 @@
 
 **Project:** PYP (Pick Your Photographer)  
 **Verification Coverage:** 42 Flutter Tests + 128 Local Database pgTAP Security Checks  
-**Status:** All Automated Local Tests Passing  
+**Status:** All Automated Local Tests Passing & GitHub Actions CI Configured
 
 ---
 
 ## 1. Test Suite Architecture Overview
 
-Testing for PYP spans three verification layers:
+Testing for PYP spans four verification layers:
 
 ```
+┌────────────────────────────────────────────────────────────────────────┐
+│                   GITHUB ACTIONS AUTOMATED CI                          │
+│  .github/workflows/ci.yml (Flutter Analyze, Widget Tests, DB pgTAP)    │
+└────────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        FLUTTER TEST SUITE                              │
 │  42 Unit & Widget Tests (State Routing, UI Widgets, Fee Calculations)  │
@@ -31,13 +37,31 @@ Testing for PYP spans three verification layers:
 
 ---
 
-## 2. Flutter Analysis & Test Results
+## 2. GitHub Actions CI Pipeline (`.github/workflows/ci.yml`)
 
-### 2.1 Static Analysis (`flutter analyze`)
+The repository includes an automated GitHub Actions CI workflow for pull requests and branch pushes:
+
+- **`flutter-quality-ci` Job**:
+  - Sets up Java 17 and Flutter `stable`.
+  - Runs `flutter pub get`.
+  - Verifies Dart formatting via `dart format --output=none --set-exit-if-changed .`.
+  - Runs static analysis via `flutter analyze`.
+  - Runs unit and widget tests via `flutter test test`.
+  - Performs a dry-run release build via `flutter build web --release`.
+- **`supabase-database-ci` Job**:
+  - Sets up Supabase CLI.
+  - Starts local Supabase container stack (`supabase start`).
+  - Executes all 13 local pgTAP database security test suites (`supabase test db --local`).
+
+---
+
+## 3. Flutter Analysis & Test Results
+
+### 3.1 Static Analysis (`flutter analyze`)
 - **Command:** `flutter analyze`
 - **Result:** **PASSED — 0 issues found**
 
-### 2.2 Flutter Unit & Widget Tests (`flutter test test`)
+### 3.2 Flutter Unit & Widget Tests (`flutter test test`)
 - **Command:** `flutter test test`
 - **Result:** **PASSED — 42 / 42 tests passed**
 - **Test File Manifest:**
@@ -51,13 +75,13 @@ Testing for PYP spans three verification layers:
 
 ---
 
-## 3. Database Security Test Suite (pgTAP)
+## 4. Database Security Test Suite (pgTAP)
 
 Database security, RLS policies, RPC authorization, refund accounting, and idempotency are tested locally using **pgTAP** via `supabase test db --local`.
 
 - **Total Execution Result:** **128 / 128 pgTAP assertions PASSED across 13 test files**.
 
-### 3.1 pgTAP Test File Breakdown:
+### 4.1 pgTAP Test File Breakdown:
 
 | Test File | Checks | Primary Focus & Coverage Area | Status |
 | :--- | :---: | :--- | :---: |
@@ -77,9 +101,9 @@ Database security, RLS policies, RPC authorization, refund accounting, and idemp
 
 ---
 
-## 4. Test Commands & How to Run Locally
+## 5. Test Commands & How to Run Locally
 
-### 4.1 Execute Local Database Security Tests
+### 5.1 Execute Local Database Security Tests
 Requires local Supabase container stack running (`supabase start`):
 ```bash
 # Run all 13 database security test suites
@@ -89,7 +113,7 @@ supabase test db --local
 supabase test db --local "supabase/tests/database/12_pyp_refund_security_and_ledger_test.sql"
 ```
 
-### 4.2 Execute Flutter Static Analysis & Tests
+### 5.2 Execute Flutter Static Analysis & Tests
 ```bash
 # Install dependencies
 flutter pub get
@@ -101,7 +125,7 @@ flutter analyze
 flutter test test
 ```
 
-### 4.3 Automated PowerShell Test Script
+### 5.3 Automated PowerShell Test Script
 ```powershell
 # Run static analysis and widget tests
 .\tool\run_pyp_tests.ps1 -SkipIntegration
@@ -109,7 +133,7 @@ flutter test test
 
 ---
 
-## 5. Integration & Mobile Device Testing Status
+## 6. Integration & Mobile Device Testing Status
 
 - **Integration Tests Available:** `integration_test/app_smoke_test.dart` and `integration_test/auth_marketplace_test.dart`.
 - **Status:** **Skipped in automated CLI run** (No active physical mobile device or Android ADB emulator attached during CLI verification).
@@ -117,7 +141,7 @@ flutter test test
 
 ---
 
-## 6. Documentation References
+## 7. Documentation References
 
 - [System Architecture](ARCHITECTURE.md)
 - [Booking Lifecycle](BOOKING_LIFECYCLE.md)

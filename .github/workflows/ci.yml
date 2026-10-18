@@ -1,0 +1,62 @@
+name: PYP Engineering Quality CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  flutter-quality-ci:
+    name: Flutter Analyze, Test & Web Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Verify Formatting
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Run Flutter Static Analysis
+        run: flutter analyze
+
+      - name: Run Flutter Unit & Widget Tests
+        run: flutter test test
+
+      - name: Dry-Run Web Release Build
+        run: flutter build web --release
+
+  supabase-database-ci:
+    name: Supabase Database Security & pgTAP Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 'latest'
+
+      - name: Start Local Supabase Stack
+        run: supabase start
+
+      - name: Run Local Database pgTAP Test Suite
+        run: supabase test db --local
