@@ -5,8 +5,9 @@ import 'package:pyp_app/main.dart' as app;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('PYP launches and displays the client sign-in screen',
-      (tester) async {
+  testWidgets('PYP launches and displays the client sign-in screen', (
+    tester,
+  ) async {
     await app.main();
     await tester.pumpAndSettle();
 
